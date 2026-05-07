@@ -1,7 +1,9 @@
 import { LitElement, html } from "lit";
 import { customElement, query, state } from "lit/decorators.js";
-import { api, type Project, type SessionInfo, type Workspace } from "../api";
+import type { Project, SessionInfo, Workspace } from "../api";
 import { initialAppState, type AppState } from "../appState";
+import { FileExplorerController } from "../controllers/fileExplorerController";
+import { GitController } from "../controllers/gitController";
 import { ProjectController } from "../controllers/projectController";
 import { SessionController } from "../controllers/sessionController";
 import { WorkspaceController } from "../controllers/workspaceController";
@@ -40,8 +42,17 @@ export class PiWebApp extends LitElement {
     (patch) => { this.setState(patch); },
     this.workspaces,
   );
+  private readonly files = new FileExplorerController(
+    () => this.state,
+    (patch) => { this.setState(patch); },
+    () => { this.updateUrl(); },
+  );
+  private readonly git = new GitController(
+    () => this.state,
+    (patch) => { this.setState(patch); },
+    () => { this.updateUrl(); },
+  );
   private readonly onPopState = () => void this.withChatScrollTransition(() => this.restoreRoute(false));
-  private gitPollTimer: number | undefined;
 
   override connectedCallback(): void {
     super.connectedCallback();
@@ -53,7 +64,7 @@ export class PiWebApp extends LitElement {
   override disconnectedCallback(): void {
     window.removeEventListener("popstate", this.onPopState);
     this.sessions.dispose();
-    if (this.gitPollTimer !== undefined) window.clearInterval(this.gitPollTimer);
+    this.git.dispose();
     super.disconnectedCallback();
   }
 
@@ -76,11 +87,11 @@ export class PiWebApp extends LitElement {
     const project = this.state.projects.find((p) => p.id === route.projectId);
     if (!project) return;
     await this.workspaces.selectProject(project, { workspaceId: route.workspaceId, sessionId: route.sessionId, updateUrl });
-    if (route.tool === "files") await this.refreshFiles();
-    if (route.file !== undefined) await this.selectFile(route.file);
-    if (route.tool === "git") await this.refreshGit();
-    if (route.diff !== undefined) await this.selectDiff(route.diff);
-    this.updateGitPolling();
+    if (route.tool === "files") await this.files.refreshFiles();
+    if (route.file !== undefined) await this.files.selectFile(route.file);
+    if (route.tool === "git") await this.git.refreshGit();
+    if (route.diff !== undefined) await this.git.selectDiff(route.diff);
+    this.git.updatePolling();
   }
 
   private async withChatScrollTransition(action: () => Promise<void>) {
@@ -117,97 +128,24 @@ export class PiWebApp extends LitElement {
   private selectWorkspaceTool(tool: "files" | "git") {
     this.setState({ workspaceTool: tool, mainView: tool });
     this.updateUrl();
-    if (tool === "files") void this.refreshFiles();
-    else void this.refreshGit();
-    this.updateGitPolling();
+    if (tool === "files") void this.files.refreshFiles();
+    else void this.git.refreshGit();
+    this.git.updatePolling();
   }
 
   private selectMainView(view: "chat" | "files" | "git") {
     this.setState({ mainView: view, workspaceTool: view === "chat" ? this.state.workspaceTool : view });
     this.updateUrl();
-    if (view === "files") void this.refreshFiles();
-    if (view === "git") void this.refreshGit();
-    this.updateGitPolling();
-  }
-
-  private async refreshFiles() {
-    const project = this.state.selectedProject;
-    const workspace = this.state.selectedWorkspace;
-    if (!project || !workspace) return;
-    try {
-      const root = await api.workspaceTree(project.id, workspace.id);
-      const expanded = { ...this.state.expandedDirs };
-      await Promise.all(Object.keys(expanded).map(async (path) => { expanded[path] = (await api.workspaceTree(project.id, workspace.id, path)).entries; }));
-      this.setState({ fileTree: root.entries, expandedDirs: expanded, fileTreeStale: false, error: "" });
-    } catch (error) {
-      this.setState({ error: String(error) });
-    }
-  }
-
-  private async expandDir(path: string) {
-    const project = this.state.selectedProject;
-    const workspace = this.state.selectedWorkspace;
-    if (!project || !workspace) return;
-    if (this.state.expandedDirs[path] !== undefined) {
-      this.setState({ expandedDirs: omitKey(this.state.expandedDirs, path) });
-      return;
-    }
-    try {
-      const response = await api.workspaceTree(project.id, workspace.id, path);
-      this.setState({ expandedDirs: { ...this.state.expandedDirs, [path]: response.entries }, error: "" });
-    } catch (error) {
-      this.setState({ error: String(error) });
-    }
-  }
-
-  private async selectFile(path: string) {
-    const project = this.state.selectedProject;
-    const workspace = this.state.selectedWorkspace;
-    if (!project || !workspace) return;
-    this.setState({ selectedFilePath: path, selectedFileContent: undefined, workspaceTool: "files", mainView: this.state.mainView === "chat" ? "chat" : "files" });
-    this.updateUrl();
-    try {
-      this.setState({ selectedFileContent: await api.workspaceFile(project.id, workspace.id, path), error: "" });
-    } catch (error) {
-      this.setState({ error: String(error) });
-    }
-  }
-
-  private async refreshGit() {
-    const project = this.state.selectedProject;
-    const workspace = this.state.selectedWorkspace;
-    if (!project || !workspace) return;
-    try {
-      const status = await api.gitStatus(project.id, workspace.id);
-      this.setState({ gitStatus: status, gitStale: false, error: "" });
-      if (this.state.selectedDiffPath !== undefined && status.files.some((file) => file.path === this.state.selectedDiffPath)) await this.refreshDiff(this.state.selectedDiffPath);
-    } catch (error) {
-      this.setState({ error: String(error) });
-    }
-  }
-
-  private async selectDiff(path: string) {
-    this.setState({ selectedDiffPath: path, selectedDiff: undefined, workspaceTool: "git", mainView: this.state.mainView === "chat" ? "chat" : "git" });
-    this.updateUrl();
-    await this.refreshDiff(path);
-  }
-
-  private async refreshDiff(path: string) {
-    const project = this.state.selectedProject;
-    const workspace = this.state.selectedWorkspace;
-    if (!project || !workspace) return;
-    try {
-      this.setState({ selectedDiff: await api.gitDiff(project.id, workspace.id, { path }), error: "" });
-    } catch (error) {
-      this.setState({ error: String(error) });
-    }
+    if (view === "files") void this.files.refreshFiles();
+    if (view === "git") void this.git.refreshGit();
+    this.git.updatePolling();
   }
 
   private handleWorkspaceChange(previous: AppState, next: AppState) {
     if (previous.selectedWorkspace?.id === next.selectedWorkspace?.id || next.selectedWorkspace === undefined) return;
-    if (next.workspaceTool === "files") void this.refreshFiles();
-    if (next.workspaceTool === "git") void this.refreshGit();
-    this.updateGitPolling();
+    if (next.workspaceTool === "files") void this.files.refreshFiles();
+    if (next.workspaceTool === "git") void this.git.refreshGit();
+    this.git.updatePolling();
   }
 
   private handleActivityTransition(previous: AppState, next: AppState) {
@@ -215,21 +153,13 @@ export class PiWebApp extends LitElement {
     const nowActive = isActive(next.status);
     if (wasActive && !nowActive) {
       this.setState({ fileTreeStale: true, gitStale: true });
-      if (this.state.workspaceTool === "files") void this.refreshFiles();
-      if (this.state.workspaceTool === "git") void this.refreshGit();
-    }
-  }
-
-  private updateGitPolling() {
-    if (this.gitPollTimer !== undefined) window.clearInterval(this.gitPollTimer);
-    this.gitPollTimer = undefined;
-    if (this.state.workspaceTool === "git" || this.state.mainView === "git") {
-      this.gitPollTimer = window.setInterval(() => { void this.refreshGit(); }, 8000);
+      if (this.state.workspaceTool === "files") void this.files.refreshFiles();
+      if (this.state.workspaceTool === "git") void this.git.refreshGit();
     }
   }
 
   private renderWorkspacePanel() {
-    return html`<workspace-panel .workspace=${this.state.selectedWorkspace} .tool=${this.state.workspaceTool} .fileTree=${this.state.fileTree} .expandedDirs=${this.state.expandedDirs} .selectedFilePath=${this.state.selectedFilePath} .selectedFileContent=${this.state.selectedFileContent} .fileTreeStale=${this.state.fileTreeStale} .gitStatus=${this.state.gitStatus} .selectedDiffPath=${this.state.selectedDiffPath} .selectedDiff=${this.state.selectedDiff} .gitStale=${this.state.gitStale} .onSelectTool=${(tool: "files" | "git") => { this.selectWorkspaceTool(tool); }} .onRefreshFiles=${() => this.refreshFiles()} .onExpandDir=${(path: string) => this.expandDir(path)} .onSelectFile=${(path: string) => this.selectFile(path)} .onRefreshGit=${() => this.refreshGit()} .onSelectDiff=${(path: string) => this.selectDiff(path)}></workspace-panel>`;
+    return html`<workspace-panel .workspace=${this.state.selectedWorkspace} .tool=${this.state.workspaceTool} .fileTree=${this.state.fileTree} .expandedDirs=${this.state.expandedDirs} .selectedFilePath=${this.state.selectedFilePath} .selectedFileContent=${this.state.selectedFileContent} .fileTreeStale=${this.state.fileTreeStale} .gitStatus=${this.state.gitStatus} .selectedDiffPath=${this.state.selectedDiffPath} .selectedDiff=${this.state.selectedDiff} .gitStale=${this.state.gitStale} .onSelectTool=${(tool: "files" | "git") => { this.selectWorkspaceTool(tool); }} .onRefreshFiles=${() => this.files.refreshFiles()} .onExpandDir=${(path: string) => this.files.expandDir(path)} .onSelectFile=${(path: string) => this.files.selectFile(path)} .onRefreshGit=${() => this.git.refreshGit()} .onSelectDiff=${(path: string) => this.git.selectDiff(path)}></workspace-panel>`;
   }
 
   override render() {
@@ -270,10 +200,6 @@ export class PiWebApp extends LitElement {
 
 function isActive(status: AppState["status"]): boolean {
   return status?.isStreaming === true || status?.isBashRunning === true || status?.isCompacting === true;
-}
-
-function omitKey<T>(record: Record<string, T>, keyToOmit: string): Record<string, T> {
-  return Object.fromEntries(Object.entries(record).filter(([key]) => key !== keyToOmit));
 }
 
 function nextFrame(): Promise<void> {
