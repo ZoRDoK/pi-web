@@ -1,33 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import type { GitDiffResponse, GitFileState, GitStatusFile, GitStatusResponse } from "../../shared/apiTypes.js";
 import { normalizeRelativePath } from "../workspaces/pathSafety.js";
-
-export type GitFileState = "unmodified" | "modified" | "added" | "deleted" | "renamed" | "copied" | "untracked" | "ignored" | "conflicted";
-
-export interface GitStatusFile {
-  path: string;
-  oldPath?: string;
-  index: GitFileState;
-  workingTree: GitFileState;
-}
-
-export interface GitStatusResponse {
-  isGitRepo: boolean;
-  hash: string;
-  branch?: string;
-  upstream?: string;
-  ahead?: number;
-  behind?: number;
-  files: GitStatusFile[];
-}
-
-export interface GitDiffResponse {
-  path?: string;
-  staged: boolean;
-  hash: string;
-  diff: string;
-  truncated: boolean;
-}
 
 const MAX_OUTPUT = 2 * 1024 * 1024;
 

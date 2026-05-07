@@ -1,16 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
+import type { FileContentResponse } from "../../shared/apiTypes.js";
 import { resolveInsideWorkspace } from "./pathSafety.js";
-
-export interface FileContentResponse {
-  path: string;
-  language?: string;
-  encoding: "utf8";
-  size: number;
-  modifiedAt: string;
-  content: string;
-  truncated: boolean;
-  binary: boolean;
-}
 
 const MAX_BYTES = 512 * 1024;
 

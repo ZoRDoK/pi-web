@@ -1,21 +1,7 @@
 import { lstat, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import type { FileTreeEntry, FileTreeResponse } from "../../shared/apiTypes.js";
 import { resolveInsideWorkspace } from "./pathSafety.js";
-
-export interface FileTreeEntry {
-  name: string;
-  path: string;
-  type: "file" | "directory" | "symlink";
-  size?: number;
-  modifiedAt?: string;
-}
-
-export interface FileTreeResponse {
-  path: string;
-  entries: FileTreeEntry[];
-  scannedAt: string;
-  truncated: boolean;
-}
 
 const MAX_ENTRIES = 1000;
 
