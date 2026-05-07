@@ -1,4 +1,4 @@
-import type { CommandResult, Project, SessionActivity, SessionInfo, SessionStatus, Workspace } from "./api";
+import type { CommandResult, FileContentResponse, FileTreeEntry, GitDiffResponse, GitStatusResponse, Project, SessionActivity, SessionInfo, SessionStatus, Workspace } from "./api";
 import type { ChatLine } from "./components/shared";
 
 export interface AppState {
@@ -17,6 +17,17 @@ export interface AppState {
   sessionStatuses: Record<string, SessionStatus>;
   sessionActivities: Record<string, SessionActivity>;
   commandDialog: Extract<CommandResult, { type: "select" }> | undefined;
+  workspaceTool: "files" | "git";
+  mainView: "chat" | "files" | "git";
+  fileTree: FileTreeEntry[];
+  expandedDirs: Record<string, FileTreeEntry[]>;
+  selectedFilePath: string | undefined;
+  selectedFileContent: FileContentResponse | undefined;
+  fileTreeStale: boolean;
+  gitStatus: GitStatusResponse | undefined;
+  selectedDiffPath: string | undefined;
+  selectedDiff: GitDiffResponse | undefined;
+  gitStale: boolean;
   error: string;
 }
 
@@ -37,6 +48,17 @@ export function initialAppState(): AppState {
     sessionStatuses: {},
     sessionActivities: {},
     commandDialog: undefined,
+    workspaceTool: "files",
+    mainView: "chat",
+    fileTree: [],
+    expandedDirs: {},
+    selectedFilePath: undefined,
+    selectedFileContent: undefined,
+    fileTreeStale: false,
+    gitStatus: undefined,
+    selectedDiffPath: undefined,
+    selectedDiff: undefined,
+    gitStale: false,
     error: "",
   };
 }

@@ -60,6 +60,59 @@ export interface FileSuggestion {
   kind: "tracked" | "untracked" | "other";
 }
 
+export interface FileTreeEntry {
+  name: string;
+  path: string;
+  type: "file" | "directory" | "symlink";
+  size?: number;
+  modifiedAt?: string;
+}
+
+export interface FileTreeResponse {
+  path: string;
+  entries: FileTreeEntry[];
+  scannedAt: string;
+  truncated: boolean;
+}
+
+export interface FileContentResponse {
+  path: string;
+  language?: string;
+  encoding: "utf8";
+  size: number;
+  modifiedAt: string;
+  content: string;
+  truncated: boolean;
+  binary: boolean;
+}
+
+export type GitFileState = "unmodified" | "modified" | "added" | "deleted" | "renamed" | "copied" | "untracked" | "ignored" | "conflicted";
+
+export interface GitStatusFile {
+  path: string;
+  oldPath?: string;
+  index: GitFileState;
+  workingTree: GitFileState;
+}
+
+export interface GitStatusResponse {
+  isGitRepo: boolean;
+  hash: string;
+  branch?: string;
+  upstream?: string;
+  ahead?: number;
+  behind?: number;
+  files: GitStatusFile[];
+}
+
+export interface GitDiffResponse {
+  path?: string;
+  staged: boolean;
+  hash: string;
+  diff: string;
+  truncated: boolean;
+}
+
 export interface CommandOption {
   value: string;
   label: string;
@@ -104,6 +157,10 @@ export const api = {
   status: (sessionId: string) => request(`/api/sessions/${sessionId}/status`, parseSessionStatus),
   commands: (sessionId: string) => request(`/api/sessions/${sessionId}/commands`, arrayOf(parseSlashCommand)),
   files: (cwd: string, query: string, kind?: FileSuggestion["kind"], mode?: "file" | "path") => request(`/api/files?cwd=${encodeURIComponent(cwd)}&q=${encodeURIComponent(query)}${kind !== undefined ? `&kind=${encodeURIComponent(kind)}` : ""}${mode !== undefined ? `&mode=${encodeURIComponent(mode)}` : ""}`, arrayOf(parseFileSuggestion)),
+  workspaceTree: (projectId: string, workspaceId: string, path = "") => request(`/api/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/tree?path=${encodeURIComponent(path)}`, parseFileTreeResponse),
+  workspaceFile: (projectId: string, workspaceId: string, path: string) => request(`/api/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?path=${encodeURIComponent(path)}`, parseFileContentResponse),
+  gitStatus: (projectId: string, workspaceId: string) => request(`/api/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/git/status`, parseGitStatusResponse),
+  gitDiff: (projectId: string, workspaceId: string, options?: { path?: string; staged?: boolean }) => request(gitDiffUrl(projectId, workspaceId, options), parseGitDiffResponse),
   prompt: (sessionId: string, text: string, streamingBehavior?: "steer" | "followUp") => request(`/api/sessions/${sessionId}/prompt`, parseAccepted, { method: "POST", body: JSON.stringify(streamingBehavior === undefined ? { text } : { text, streamingBehavior }) }),
   shell: (sessionId: string, text: string) => request(`/api/sessions/${sessionId}/shell`, parseAccepted, { method: "POST", body: JSON.stringify({ text }) }),
   runCommand: (sessionId: string, text: string) => request(`/api/sessions/${sessionId}/commands/run`, parseCommandResult, { method: "POST", body: JSON.stringify({ text }) }),
@@ -120,6 +177,14 @@ export function sessionEvents(sessionId: string): WebSocket {
 
 export function globalSessionEvents(): WebSocket {
   return new WebSocket(`${webSocketBaseUrl()}/api/sessions/events`);
+}
+
+function gitDiffUrl(projectId: string, workspaceId: string, options?: { path?: string; staged?: boolean }): string {
+  const params = new URLSearchParams();
+  if (options?.path !== undefined) params.set("path", options.path);
+  if (options?.staged === true) params.set("staged", "true");
+  const query = params.toString();
+  return `/api/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/git/diff${query ? `?${query}` : ""}`;
 }
 
 function messageUrl(sessionId: string, options?: { limit?: number; before?: number }): string {
@@ -275,6 +340,44 @@ function parseFileSuggestion(value: unknown): FileSuggestion {
   const kind = requireString(record, "kind");
   if (kind !== "tracked" && kind !== "untracked" && kind !== "other") throw new Error("Invalid file kind");
   return { path: requireString(record, "path"), kind };
+}
+
+function parseFileTreeResponse(value: unknown): FileTreeResponse {
+  const record = requireRecord(value);
+  return { path: requireString(record, "path"), entries: arrayOf(parseFileTreeEntry)(record["entries"]), scannedAt: requireString(record, "scannedAt"), truncated: requireBoolean(record, "truncated") };
+}
+
+function parseFileTreeEntry(value: unknown): FileTreeEntry {
+  const record = requireRecord(value);
+  const type = requireString(record, "type");
+  if (type !== "file" && type !== "directory" && type !== "symlink") throw new Error("Invalid file tree entry type");
+  return { name: requireString(record, "name"), path: requireString(record, "path"), type, ...optionalField("size", optionalNumber(record, "size")), ...optionalField("modifiedAt", optionalString(record, "modifiedAt")) };
+}
+
+function parseFileContentResponse(value: unknown): FileContentResponse {
+  const record = requireRecord(value);
+  return { path: requireString(record, "path"), ...optionalField("language", optionalString(record, "language")), encoding: requireString(record, "encoding") as "utf8", size: requireNumber(record, "size"), modifiedAt: requireString(record, "modifiedAt"), content: requireString(record, "content"), truncated: requireBoolean(record, "truncated"), binary: requireBoolean(record, "binary") };
+}
+
+function parseGitStatusResponse(value: unknown): GitStatusResponse {
+  const record = requireRecord(value);
+  return { isGitRepo: requireBoolean(record, "isGitRepo"), hash: requireString(record, "hash"), ...optionalField("branch", optionalString(record, "branch")), ...optionalField("upstream", optionalString(record, "upstream")), ...optionalField("ahead", optionalNumber(record, "ahead")), ...optionalField("behind", optionalNumber(record, "behind")), files: arrayOf(parseGitStatusFile)(record["files"]) };
+}
+
+function parseGitStatusFile(value: unknown): GitStatusFile {
+  const record = requireRecord(value);
+  return { path: requireString(record, "path"), ...optionalField("oldPath", optionalString(record, "oldPath")), index: parseGitFileState(record["index"]), workingTree: parseGitFileState(record["workingTree"]) };
+}
+
+function parseGitFileState(value: unknown): GitFileState {
+  if (typeof value !== "string") throw new Error("Expected git file state");
+  if (!["unmodified", "modified", "added", "deleted", "renamed", "copied", "untracked", "ignored", "conflicted"].includes(value)) throw new Error("Invalid git file state");
+  return value as GitFileState;
+}
+
+function parseGitDiffResponse(value: unknown): GitDiffResponse {
+  const record = requireRecord(value);
+  return { ...optionalField("path", optionalString(record, "path")), staged: requireBoolean(record, "staged"), hash: requireString(record, "hash"), diff: requireString(record, "diff"), truncated: requireBoolean(record, "truncated") };
 }
 
 function parseCommandResult(value: unknown): CommandResult {

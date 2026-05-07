@@ -25,18 +25,57 @@ export interface CompletionItem {
 
 export const appStyles = css`
   :host { display: block; height: 100dvh; box-sizing: border-box; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); color: #e6edf3; background: #0d1117; font: 14px system-ui, sans-serif; }
-  .shell { display: grid; grid-template-columns: 340px 1fr; height: 100%; min-height: 0; }
+  .shell { display: grid; grid-template-columns: 340px minmax(420px, 1fr) minmax(360px, 42vw); height: 100%; min-height: 0; }
   aside { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid #30363d; overflow: hidden; }
   header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; padding: 12px; border-bottom: 1px solid #30363d; }
   project-list, workspace-list { flex: 0 0 auto; max-height: 26%; overflow: auto; border-bottom: 1px solid #21262d; }
   session-list { flex: 1 1 auto; min-height: 0; overflow: auto; }
   main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .mobile-tabs { display: none; flex: 0 0 auto; gap: 6px; padding: 8px; border-bottom: 1px solid #30363d; }
+  .mobile-panel { display: none; }
+  .mobile-tabs button.selected { border-color: #58a6ff; background: #0d2847; }
+  workspace-panel { min-width: 0; min-height: 0; border-left: 1px solid #30363d; overflow: hidden; }
+  @media (max-width: 1180px) {
+    .shell { grid-template-columns: 340px minmax(0, 1fr); }
+    .shell > workspace-panel { display: none; }
+    .mobile-tabs { display: flex; }
+    main.files-view chat-view, main.files-view prompt-editor, main.files-view status-bar,
+    main.git-view chat-view, main.git-view prompt-editor, main.git-view status-bar,
+    main.files-view .empty, main.git-view .empty { display: none; }
+    main.chat-view .mobile-panel { display: none; }
+    .mobile-panel { flex: 1 1 auto; min-height: 0; display: flex; }
+    .mobile-panel workspace-panel { flex: 1 1 auto; border-left: 0; }
+  }
   status-bar { flex: 0 0 auto; }
   chat-view { flex: 1 1 auto; min-height: 0; overflow: auto; }
   prompt-editor, chat-composer { flex: 0 0 auto; }
   button { border: 1px solid #30363d; border-radius: 8px; background: #161b22; color: #e6edf3; padding: 7px 9px; cursor: pointer; }
   .empty { margin: auto; color: #8b949e; }
   .error { padding: 10px 16px; border-bottom: 1px solid #30363d; color: #ff7b72; }
+`;
+
+export const workspacePanelStyles = css`
+  :host { display: flex; flex-direction: column; min-height: 0; color: #e6edf3; background: #0d1117; font: 13px system-ui, sans-serif; }
+  header { flex: 0 0 auto; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid #30363d; }
+  .tabs { display: flex; gap: 6px; }
+  button { border: 1px solid #30363d; border-radius: 7px; background: #161b22; color: #e6edf3; padding: 5px 7px; cursor: pointer; }
+  button.selected { border-color: #58a6ff; background: #0d2847; }
+  small, .muted { color: #8b949e; }
+  header small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .toolbar { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid #21262d; }
+  .toolbar button { margin-left: auto; }
+  .stale { border: 1px solid #6e5200; border-radius: 999px; color: #d29922; padding: 1px 6px; font-size: 12px; }
+  .split { flex: 1 1 auto; min-height: 0; display: grid; grid-template-rows: minmax(160px, 34%) minmax(0, 1fr); }
+  .list { min-height: 0; overflow: auto; border-bottom: 1px solid #30363d; padding: 6px; }
+  .row { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 4px; width: 100%; border: 0; border-radius: 5px; background: transparent; text-align: left; padding: 4px 6px 4px calc(6px + var(--depth, 0) * 14px); }
+  .row:hover, .row.selected { background: #0d2847; }
+  .row span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .summary { margin: 4px 6px 8px; color: #8b949e; }
+  .viewer { min-height: 0; overflow: auto; }
+  .viewer-header { position: sticky; top: 0; display: flex; justify-content: space-between; gap: 8px; padding: 8px; border-bottom: 1px solid #21262d; background: #0d1117; }
+  .viewer-header strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  pre { margin: 0; padding: 10px; overflow: auto; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+  p { margin: 10px; }
 `;
 
 export const listStyles = css`
