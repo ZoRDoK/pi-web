@@ -133,7 +133,7 @@ npm install -g github:jmfederico/pi-web#main
 pi-web install
 ```
 
-This uses npm's git install flow and runs the package `prepare` script to install build-time dev dependencies if needed, then build `dist/` on the target machine.
+For git installs, `dist/` must already be present in the repository because npm does not run the package's `prepack` script for git dependencies.
 
 ## Development quick start
 
@@ -170,7 +170,7 @@ npm run pack:dry
 npm publish --access public
 ```
 
-`prepare` builds `dist/` before npm creates the tarball and when installing directly from git, and `prepublishOnly` runs verification before publishing. Releases can also be published by the GitHub Actions npm workflow when a GitHub release is published.
+`prepack` builds `dist/` before npm creates the tarball, and `prepublishOnly` runs verification before publishing. Releases can also be published by the GitHub Actions npm workflow when a GitHub release is published.
 
 Pi Web uses a single-line CalVer-inspired npm version: `MAJOR.YYYYMM.SEQUENCE`, for example `1.202605.1`. The major number signals breaking-change eras; the middle number is the release month; the final number increments for additional releases in that month. Older major eras may be deprecated rather than maintained in parallel.
 
