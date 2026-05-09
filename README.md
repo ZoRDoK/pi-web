@@ -2,24 +2,25 @@
 
 ![Pi Web](docs/assets/pi-web-banner.png)
 
-A web control plane for remote, agentic software development with [Pi Coding Agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent).
+**Run AI coding agents on your own machine or server, keep them alive in real workspaces, and control everything from a browser.**
 
-Pi Web lets you run coding agents on a server, organize their work by project and workspace, and steer sessions from a browser. Your laptop becomes a window into persistent development environments instead of the place where all development has to happen.
+Pi Web is a web control plane for [Pi Coding Agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent). Add your repositories once, open project workspaces and git worktrees, start agent sessions inside them, and come back later without losing the work. Your browser becomes the cockpit; your server becomes the persistent development environment. Start on your laptop, check in from your phone, and continue from an iPad or another machine whenever that is the device you have at hand.
+
+With Pi Web you can:
+
+- launch and supervise multiple coding-agent sessions in parallel;
+- keep sessions running when your browser disconnects or the UI restarts;
+- organize agent work by project, workspace, branch, experiment, or review;
+- use git worktrees to isolate concurrent features and fixes;
+- chat with Pi Coding Agent through a realtime web UI;
+- move fluidly between laptop, phone, tablet, and desktop without moving the development environment;
+- turn any server, desktop, or remote dev box into an agent-first development hub.
 
 ## Why use Pi Web?
 
-Modern AI development does not need to be constrained by a local IDE, a single terminal, or a laptop that must stay open. Agents can work in long-lived server environments, across multiple repositories and worktrees, while humans supervise, steer, review, and organize the work through a web UI.
+Agentic development works best when agents are not trapped inside a single local terminal. They need stable environments, access to real repositories, and room to work across branches and tasks. Humans need the opposite: a clear place to supervise, redirect, review, and decide.
 
-Pi Web is for developers who want:
-
-- persistent remote agent sessions;
-- browser access to server-side development environments;
-- project and workspace organization for many concurrent tasks;
-- git-worktree-based workflows for parallel feature development;
-- a human-in-the-loop interface designed around agents first;
-- a foundation for adding terminals, file trees, git views, planning docs, kanban boards, review queues, deployment controls, and other workflow surfaces.
-
-It is not trying to recreate the old desktop IDE in a browser. It is a control surface for agent-driven development.
+Pi Web connects those two worlds. The work stays in the server-side environment while you move between devices: laptop for deep focus, phone for a quick check-in, tablet for review, desktop when you are back at a desk. It is not trying to recreate the old desktop IDE in a browser; it is a control surface for persistent, parallel, human-in-the-loop agent work.
 
 ## Core model
 
