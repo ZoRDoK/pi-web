@@ -43,16 +43,33 @@ export class ChatView extends LitElement {
   private suppressScrollSave = false;
   private saveScrollTimer?: number;
   private lastScrollTop = 0;
+  private lastClientHeight = 0;
   private touchStartY: number | undefined;
+  private readonly onViewportResize = () => {
+    if (this.pinnedToBottom) this.scrollToBottom();
+    else this.lastClientHeight = this.chat?.clientHeight ?? 0;
+  };
+
+  override connectedCallback(): void {
+    super.connectedCallback();
+    window.addEventListener("resize", this.onViewportResize);
+    window.visualViewport?.addEventListener("resize", this.onViewportResize);
+  }
+
+  protected override firstUpdated(): void {
+    this.lastClientHeight = this.chat?.clientHeight ?? 0;
+  }
 
   override disconnectedCallback(): void {
     window.clearTimeout(this.saveScrollTimer);
+    window.removeEventListener("resize", this.onViewportResize);
+    window.visualViewport?.removeEventListener("resize", this.onViewportResize);
     super.disconnectedCallback();
   }
 
   protected override willUpdate(changed: Map<string, unknown>): void {
     if (changed.has("sessionId")) this.openGroupKeys = this.readOpenGroupKeys();
-    if (changed.has("messages")) this.pinnedToBottom = this.pinnedToBottom && this.isNearBottom();
+    if (changed.has("messages")) this.pinnedToBottom = this.pinnedToBottom && (this.didChatHeightChange() || this.isNearBottom());
   }
 
   protected override updated(changed: Map<string, unknown>): void {
@@ -347,11 +364,24 @@ export class ChatView extends LitElement {
   private updatePinnedToBottomFromScroll() {
     const chat = this.chat;
     if (!chat) return;
+    const heightChanged = this.didChatHeightChange();
+    const wasPinnedToBottom = this.pinnedToBottom;
     const scrollingUp = chat.scrollTop < this.lastScrollTop;
+    if (heightChanged && wasPinnedToBottom) {
+      this.lastClientHeight = chat.clientHeight;
+      this.scrollToBottom();
+      return;
+    }
     if (this.isAtBottom()) this.pinnedToBottom = true;
     else if (scrollingUp) this.pinnedToBottom = false;
     else this.pinnedToBottom = this.isNearBottom();
     this.lastScrollTop = chat.scrollTop;
+    this.lastClientHeight = chat.clientHeight;
+  }
+
+  private didChatHeightChange(): boolean {
+    const chat = this.chat;
+    return chat !== undefined && this.lastClientHeight !== 0 && chat.clientHeight !== this.lastClientHeight;
   }
 
   private updateLoadedScrollPercent(): void {
@@ -390,6 +420,7 @@ export class ChatView extends LitElement {
       this.withSuppressedScrollSave(() => {
         chat.scrollTop = chat.scrollHeight;
         this.lastScrollTop = chat.scrollTop;
+        this.lastClientHeight = chat.clientHeight;
       });
     });
   }
