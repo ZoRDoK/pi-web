@@ -1,3 +1,8 @@
+import { defaultKeymap, history, historyKeymap, indentWithTab, insertNewlineAndIndent } from "@codemirror/commands";
+import { markdown, deleteMarkupBackward, insertNewlineContinueMarkup } from "@codemirror/lang-markdown";
+import { EditorSelection, EditorState, Compartment } from "@codemirror/state";
+import { EditorView, keymap, placeholder } from "@codemirror/view";
+import { defaultHighlightStyle, indentOnInput, indentUnit, syntaxHighlighting } from "@codemirror/language";
 import { LitElement, html, type PropertyValues } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import { api, type FileSuggestion, type SessionStatus, type SlashCommand } from "../api";
@@ -18,11 +23,14 @@ export class PromptEditor extends LitElement {
   @property({ attribute: false }) onStop?: () => void;
   @property({ attribute: false }) onSelectModel?: () => void;
   @property({ attribute: false }) onSelectThinking?: () => void;
-  @query("textarea") private textarea?: HTMLTextAreaElement;
+  @query(".markdown-editor") private editorHost?: HTMLDivElement;
   @state() private draft = "";
   @state() private completions: CompletionItem[] = [];
   @state() private selectedIndex = 0;
   private requestVersion = 0;
+  private editor: EditorView | undefined;
+  private readonly editableCompartment = new Compartment();
+  private readonly readOnlyCompartment = new Compartment();
 
   protected override willUpdate(changed: PropertyValues<this>) {
     if (!changed.has("sessionId")) return;
@@ -33,8 +41,19 @@ export class PromptEditor extends LitElement {
     this.selectedIndex = 0;
   }
 
+  override firstUpdated(): void {
+    this.createEditor();
+  }
+
   protected override updated(changed: PropertyValues) {
-    if (changed.has("draft") || changed.has("sessionId")) this.resizeTextarea();
+    if (changed.has("disabled")) this.updateEditorDisabledState();
+    if (changed.has("draft") || changed.has("sessionId")) this.syncEditorDoc();
+  }
+
+  override disconnectedCallback(): void {
+    this.editor?.destroy();
+    this.editor = undefined;
+    super.disconnectedCallback();
   }
 
   override render() {
@@ -44,15 +63,7 @@ export class PromptEditor extends LitElement {
     return html`
       <footer class=${shellMode ? "shell-mode" : ""}>
         <div class="editor-wrap">
-          <textarea
-            .value=${this.draft}
-            ?disabled=${this.disabled}
-            @input=${(event: Event) => {
-              if (event.target instanceof HTMLTextAreaElement) this.updateDraft(event.target.value);
-            }}
-            @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}
-            placeholder="Message pi... Use / for commands, @ for files"
-          ></textarea>
+          <div class=${`markdown-editor${this.disabled ? " markdown-editor-disabled" : ""}`} aria-label="Message pi" aria-disabled=${this.disabled ? "true" : "false"}></div>
           ${shellMode ? html`<div class="mode-hint">Shell command${inputMode.excludeFromContext ? " · excluded from context" : ""}</div>` : null}
           ${this.isCompacting && !shellMode ? html`<div class="mode-hint">Compacting history · message will be queued</div>` : null}
           <autocomplete-menu .items=${this.completions} .selectedIndex=${this.selectedIndex} .onPick=${(item: CompletionItem) => { this.pick(item); }}></autocomplete-menu>
@@ -68,7 +79,7 @@ export class PromptEditor extends LitElement {
   }
 
   focusInput() {
-    this.textarea?.focus();
+    this.editor?.focus();
   }
 
   private renderCompactStatus() {
@@ -84,11 +95,60 @@ export class PromptEditor extends LitElement {
     `;
   }
 
-  private resizeTextarea() {
-    const textarea = this.textarea;
-    if (!textarea) return;
-    textarea.style.height = "auto";
-    textarea.style.height = `${String(textarea.scrollHeight)}px`;
+  private createEditor() {
+    if (!this.editorHost || this.editor !== undefined) return;
+    this.editor = new EditorView({
+      parent: this.editorHost,
+      state: EditorState.create({
+        doc: this.draft,
+        extensions: [
+          history(),
+          markdown(),
+          indentOnInput(),
+          indentUnit.of("  "),
+          syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+          EditorView.lineWrapping,
+          placeholder("Message pi... Use / for commands, @ for files"),
+          this.editableCompartment.of(EditorView.editable.of(!this.disabled)),
+          this.readOnlyCompartment.of(EditorState.readOnly.of(this.disabled)),
+          EditorView.updateListener.of((update) => {
+            if (update.docChanged) this.updateDraft(update.state.doc.toString());
+          }),
+          keymap.of([
+            { key: "ArrowDown", run: () => this.moveCompletion(1) },
+            { key: "ArrowUp", run: () => this.moveCompletion(-1) },
+            { key: "Escape", run: () => this.closeCompletions() },
+            { key: "Enter", run: () => this.handleEditorEnter() },
+            { key: "Shift-Enter", run: (view) => insertNewlineContinueMarkup(view) || insertNewlineAndIndent(view) },
+            { key: "Tab", run: (view) => this.handleEditorTab(view) },
+            { key: "Shift-Tab", run: (view) => indentWithTab.shift?.(view) ?? false },
+            { key: "Backspace", run: (view) => deleteMarkupBackward(view) },
+            ...historyKeymap,
+            ...defaultKeymap,
+          ]),
+        ],
+      }),
+    });
+  }
+
+  private syncEditorDoc() {
+    const editor = this.editor;
+    if (!editor) return;
+    const current = editor.state.doc.toString();
+    if (current === this.draft) return;
+    editor.dispatch({
+      changes: { from: 0, to: current.length, insert: this.draft },
+      selection: EditorSelection.cursor(this.draft.length),
+    });
+  }
+
+  private updateEditorDisabledState() {
+    this.editor?.dispatch({
+      effects: [
+        this.editableCompartment.reconfigure(EditorView.editable.of(!this.disabled)),
+        this.readOnlyCompartment.reconfigure(EditorState.readOnly.of(this.disabled)),
+      ],
+    });
   }
 
   private updateDraft(value: string) {
@@ -139,7 +199,7 @@ export class PromptEditor extends LitElement {
   }
 
   private currentTrigger(): { kind: "command" | "file"; query: string; from: number; to: number; fileKind?: FileSuggestion["kind"]; fileMode?: "file" | "path"; quoted?: boolean } | undefined {
-    const cursor = this.textarea?.selectionStart ?? this.draft.length;
+    const cursor = this.editor?.state.selection.main.head ?? this.draft.length;
     const beforeCursor = this.draft.slice(0, cursor);
     const quotedTrigger = this.currentQuotedTrigger(beforeCursor, cursor);
     if (quotedTrigger !== undefined) return quotedTrigger;
@@ -162,52 +222,54 @@ export class PromptEditor extends LitElement {
     return undefined;
   }
 
-  private handleKeyDown(event: KeyboardEvent) {
+  private moveCompletion(delta: number): boolean {
+    if (!this.completions.length) return false;
+    this.selectedIndex = (this.selectedIndex + delta + this.completions.length) % this.completions.length;
+    return true;
+  }
+
+  private closeCompletions(): boolean {
+    if (!this.completions.length) return false;
+    this.completions = [];
+    return true;
+  }
+
+  private handleEditorEnter(): boolean {
     if (this.completions.length) {
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        this.selectedIndex = (this.selectedIndex + 1) % this.completions.length;
-        return;
-      }
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        this.selectedIndex = (this.selectedIndex - 1 + this.completions.length) % this.completions.length;
-        return;
-      }
-      if (event.key === "Tab" || event.key === "Enter") {
-        event.preventDefault();
-        const completion = this.completions[this.selectedIndex];
-        if (completion !== undefined) this.pick(completion);
-        return;
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        this.completions = [];
-        return;
-      }
+      const completion = this.completions[this.selectedIndex];
+      if (completion !== undefined) this.pick(completion);
+      return true;
     }
-    if (event.key === "Tab") {
-      const trigger = this.currentTrigger();
-      if (trigger?.kind === "file") {
-        event.preventDefault();
-        void this.refreshCompletions();
-        return;
-      }
+    this.send(this.canSteer || this.isCompacting ? "followUp" : undefined);
+    return true;
+  }
+
+  private handleEditorTab(view: EditorView): boolean {
+    if (this.completions.length) {
+      const completion = this.completions[this.selectedIndex];
+      if (completion !== undefined) this.pick(completion);
+      return true;
     }
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      this.send(this.canSteer || this.isCompacting ? "followUp" : undefined);
+    const trigger = this.currentTrigger();
+    if (trigger?.kind === "file") {
+      void this.refreshCompletions();
+      return true;
     }
+    return indentWithTab.run?.(view) ?? false;
   }
 
   private pick(item: CompletionItem) {
+    const editor = this.editor;
+    if (!editor) return;
     const suffix = item.kind === "file" && (item.insertText.endsWith("/") || item.cursorOffset !== undefined) ? "" : " ";
     const cursor = item.replaceFrom + (item.cursorOffset ?? item.insertText.length) + suffix.length;
-    const after = item.insertText.endsWith("\"") && this.draft.slice(item.replaceTo).startsWith("\"") ? this.draft.slice(item.replaceTo + 1) : this.draft.slice(item.replaceTo);
-    this.draft = `${this.draft.slice(0, item.replaceFrom)}${item.insertText}${suffix}${after}`;
-    if (this.sessionId !== undefined && this.sessionId !== "") saveDraft(this.sessionId, this.draft);
+    const replaceTo = item.insertText.endsWith("\"") && this.draft.slice(item.replaceTo).startsWith("\"") ? item.replaceTo + 1 : item.replaceTo;
+    editor.dispatch({
+      changes: { from: item.replaceFrom, to: replaceTo, insert: `${item.insertText}${suffix}` },
+      selection: EditorSelection.cursor(cursor),
+      scrollIntoView: true,
+    });
     this.completions = [];
-    void this.updateComplete.then(() => this.textarea?.setSelectionRange(cursor, cursor));
   }
 
   private send(streamingBehavior?: "steer" | "followUp") {

@@ -320,11 +320,17 @@ export const promptEditorStyles = css`
   .compact-status > button { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .select-model { max-width: min(42vw, 320px); }
   .select-thinking { max-width: 110px; }
-  textarea { box-sizing: border-box; width: 100%; min-height: 54px; max-height: 220px; resize: none; overflow-y: auto; border-radius: 8px; border: 1px solid #30363d; background: #0d1117; color: #e6edf3; padding: 8px; font: 16px/1.4 system-ui, sans-serif; }
-  .shell-mode textarea { border-color: #3fb950; box-shadow: 0 0 0 1px #3fb95055; }
+  textarea, .markdown-editor .cm-editor { box-sizing: border-box; width: 100%; min-height: 54px; max-height: 220px; resize: none; overflow: hidden; border-radius: 8px; border: 1px solid #30363d; background: #0d1117; color: #e6edf3; font: 16px/1.4 system-ui, sans-serif; }
+  textarea { overflow-y: auto; padding: 8px; }
+  .markdown-editor .cm-scroller { max-height: 220px; overflow-y: auto; font-family: system-ui, sans-serif; line-height: 1.4; }
+  .markdown-editor .cm-content { min-height: 38px; padding: 8px; caret-color: #e6edf3; }
+  .markdown-editor .cm-line { padding: 0; }
+  .markdown-editor .cm-placeholder { color: #6e7681; }
+  .markdown-editor .cm-focused { outline: none; }
+  .shell-mode textarea, .shell-mode .markdown-editor .cm-editor { border-color: #3fb950; box-shadow: 0 0 0 1px #3fb95055; }
   .mode-hint { position: absolute; right: 8px; bottom: 8px; max-width: calc(100% - 16px); border: 1px solid #238636; border-radius: 999px; background: #0f2a16; color: #3fb950; padding: 2px 8px; font-size: 12px; pointer-events: none; }
   button { border: 1px solid #30363d; border-radius: 8px; background: #161b22; color: #e6edf3; padding: 7px 9px; cursor: pointer; }
-  button:disabled, textarea:disabled { opacity: .5; cursor: not-allowed; }
+  button:disabled, textarea:disabled, .markdown-editor-disabled .cm-editor { opacity: .5; cursor: not-allowed; }
   @media (max-width: 640px) {
     footer { gap: 8px; padding: 8px; }
     .actions { gap: 6px; }
