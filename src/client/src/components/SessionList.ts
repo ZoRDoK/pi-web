@@ -1,6 +1,7 @@
 import { LitElement, html, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { SessionActivity, SessionInfo, SessionStatus } from "../api";
+import { isCachedNewSessionInfo } from "../cachedNewSessions";
 import { activateSelectableRow, activateSelectableRowFromKeyboard } from "./selectableRow";
 import { listStyles } from "./shared";
 
@@ -33,6 +34,7 @@ export class SessionList extends LitElement {
   };
   @property({ attribute: false }) onArchive?: (session: SessionInfo) => void;
   @property({ attribute: false }) onRestore?: (session: SessionInfo) => void;
+  @property({ attribute: false }) onDelete?: (session: SessionInfo) => void;
   @property({ attribute: false }) onDetachParent?: (session: SessionInfo) => void;
 
   override connectedCallback(): void {
@@ -92,9 +94,11 @@ export class SessionList extends LitElement {
           ${this.openMenuSessionId === session.id ? html`
             <div class="action-menu-panel" style=${this.menuStyle}>
               ${session.parentSessionPath !== undefined ? html`<button title="Detach from parent" @click=${() => { this.openMenuSessionId = undefined; this.onDetachParent?.(session); }}>Detach from parent</button>` : null}
-              ${session.archived === true
-                ? html`<button title="Restore session" @click=${() => { this.openMenuSessionId = undefined; this.onRestore?.(session); }}>Restore</button>`
-                : html`<button title="Archive session" @click=${() => { this.openMenuSessionId = undefined; this.onArchive?.(session); }}>Archive</button>`}
+              ${isCachedNewSessionInfo(session)
+                ? html`<button title="Delete browser-cached new session" @click=${() => { this.openMenuSessionId = undefined; this.onDelete?.(session); }}>Delete</button>`
+                : session.archived === true
+                  ? html`<button title="Restore session" @click=${() => { this.openMenuSessionId = undefined; this.onRestore?.(session); }}>Restore</button>`
+                  : html`<button title="Archive session" @click=${() => { this.openMenuSessionId = undefined; this.onArchive?.(session); }}>Archive</button>`}
             </div>
           ` : null}
         </div>
@@ -124,6 +128,7 @@ export class SessionList extends LitElement {
   }
 
   private renderStatus(session: SessionInfo) {
+    if (isCachedNewSessionInfo(session)) return "new · ";
     if (session.archived === true) return "read-only · ";
     const status = this.statuses[session.id];
     const activity = this.activities[session.id];

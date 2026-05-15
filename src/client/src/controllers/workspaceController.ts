@@ -1,4 +1,5 @@
 import { api, type Project, type Workspace } from "../api";
+import { mergeCachedNewSessions } from "../cachedNewSessions";
 import type { GetState, RouteTarget, SetState, UpdateUrl } from "./types";
 import type { SessionController } from "./sessionController";
 import { InMemoryWorkspaceSelectionMemory, selectPreferredWorkspace, type WorkspaceSelectionMemory } from "./workspaceSelection";
@@ -41,7 +42,7 @@ export class WorkspaceController {
     this.sessions.clearActiveSession();
     this.setState({ selectedWorkspace: workspace, sessions: [], fileTree: [], expandedDirs: {}, selectedFilePath: undefined, selectedFileContent: undefined, fileTreeStale: false, gitStatus: undefined, selectedDiffPath: undefined, selectedDiff: undefined, selectedStagedDiff: undefined, gitStale: false, error: "" });
     try {
-      const sessions = await api.sessions(workspace.path);
+      const sessions = mergeCachedNewSessions(workspace.path, await api.sessions(workspace.path));
       this.setState({ sessions });
       const session = this.sessions.preferredSession(workspace.path, sessions, target?.sessionId);
       if (session) await this.sessions.selectSession(session, { updateUrl: target?.updateUrl });

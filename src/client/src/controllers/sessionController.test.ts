@@ -1,0 +1,134 @@
+import { afterEach, describe, expect, it } from "vitest";
+import { api as defaultApi, type MessagePage, type SessionInfo, type SessionStatus, type Workspace } from "../api";
+import { loadCachedNewSessions, markCachedNewSessionInfo, rememberCachedNewSession } from "../cachedNewSessions";
+import { initialAppState, type AppState } from "../appState";
+import { loadDraft, saveDraft } from "../promptDraftStorage";
+import { SessionController, type SessionEventSocket } from "./sessionController";
+
+class MemoryStorage implements Storage {
+  private readonly values = new Map<string, string>();
+
+  get length(): number {
+    return this.values.size;
+  }
+
+  clear(): void {
+    this.values.clear();
+  }
+
+  getItem(key: string): string | null {
+    return this.values.get(key) ?? null;
+  }
+
+  key(index: number): string | null {
+    return Array.from(this.values.keys())[index] ?? null;
+  }
+
+  removeItem(key: string): void {
+    this.values.delete(key);
+  }
+
+  setItem(key: string, value: string): void {
+    this.values.set(key, value);
+  }
+}
+
+class FakeSocket implements SessionEventSocket {
+  readonly connectedSessionIds: string[] = [];
+
+  connect(sessionId: string): void {
+    this.connectedSessionIds.push(sessionId);
+  }
+
+  setHandler(): void {
+    // Test socket does not emit events.
+  }
+
+  close(): void {
+    // No-op.
+  }
+}
+
+const workspace: Workspace = {
+  id: "workspace-1",
+  projectId: "project-1",
+  path: "/repo",
+  label: "repo",
+  isMain: true,
+  isGitRepo: true,
+  isGitWorktree: false,
+};
+
+const oldSession: SessionInfo = {
+  id: "old-session",
+  path: "/tmp/old-session.jsonl",
+  cwd: "/repo",
+  created: "2026-05-15T00:00:00.000Z",
+  modified: "2026-05-15T00:00:00.000Z",
+  messageCount: 0,
+  firstMessage: "",
+};
+
+const replacementSession: SessionInfo = {
+  ...oldSession,
+  id: "new-session",
+  path: "/tmp/new-session.jsonl",
+};
+
+const emptyPage: MessagePage = { messages: [], start: 0, total: 0 };
+
+function status(sessionId: string): SessionStatus {
+  return {
+    sessionId,
+    isStreaming: false,
+    isCompacting: false,
+    isBashRunning: false,
+    pendingMessageCount: 0,
+    queuedMessages: [],
+    tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    cost: 0,
+  };
+}
+
+describe("SessionController", () => {
+  afterEach(() => {
+    Object.defineProperty(globalThis, "localStorage", { value: undefined, configurable: true });
+  });
+
+  it("recreates missing browser-cached new sessions and moves their draft", async () => {
+    const storage = new MemoryStorage();
+    Object.defineProperty(globalThis, "localStorage", { value: storage, configurable: true });
+    rememberCachedNewSession(oldSession);
+    saveDraft(oldSession.id, "draft text");
+
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [markCachedNewSessionInfo(oldSession)] };
+    const urlUpdates: ({ replace?: boolean | undefined } | undefined)[] = [];
+    const socket = new FakeSocket();
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      startSession: () => Promise.resolve(replacementSession),
+      messages: (sessionId) => {
+        if (sessionId === oldSession.id) return Promise.reject(new Error("Session not found"));
+        return Promise.resolve(emptyPage);
+      },
+      status: (sessionId) => Promise.resolve(status(sessionId)),
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      (options) => { urlUpdates.push(options); },
+      undefined,
+      { api, socket },
+    );
+
+    await controller.selectSession(markCachedNewSessionInfo(oldSession), { updateUrl: false });
+
+    expect(state.selectedSession?.id).toBe(replacementSession.id);
+    expect(state.sessions.map((session) => session.id)).toEqual([replacementSession.id]);
+    expect(socket.connectedSessionIds).toEqual([oldSession.id, replacementSession.id]);
+    expect(loadDraft(oldSession.id)).toBe("");
+    expect(loadDraft(replacementSession.id)).toBe("draft text");
+    expect(loadCachedNewSessions().map((session) => session.id)).toEqual([replacementSession.id]);
+    expect(urlUpdates).toEqual([{ replace: true }]);
+  });
+});

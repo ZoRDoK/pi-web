@@ -7,6 +7,7 @@ import { LitElement, html, type PropertyValues } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import { api, type FileSuggestion, type SessionStatus, type SlashCommand } from "../api";
 import { inputModeForDraft } from "../inputModes";
+import { clearDraft, loadDraft, saveDraft } from "../promptDraftStorage";
 import { promptEditorStyles, type CompletionItem } from "./shared";
 import "./AutocompleteMenu";
 
@@ -298,33 +299,3 @@ function emptyFileSuggestions(): FileSuggestion[] {
   return [];
 }
 
-const draftStoragePrefix = "pi-web:prompt-draft:";
-
-function draftStorageKey(sessionId: string): string {
-  return `${draftStoragePrefix}${sessionId}`;
-}
-
-function loadDraft(sessionId: string): string {
-  try {
-    return localStorage.getItem(draftStorageKey(sessionId)) ?? "";
-  } catch {
-    return "";
-  }
-}
-
-function saveDraft(sessionId: string, draft: string): void {
-  try {
-    if (draft) localStorage.setItem(draftStorageKey(sessionId), draft);
-    else localStorage.removeItem(draftStorageKey(sessionId));
-  } catch {
-    // Ignore localStorage quota/privacy errors.
-  }
-}
-
-function clearDraft(sessionId: string): void {
-  try {
-    localStorage.removeItem(draftStorageKey(sessionId));
-  } catch {
-    // Ignore localStorage quota/privacy errors.
-  }
-}

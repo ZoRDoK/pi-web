@@ -1,5 +1,7 @@
 import { api as defaultApi, type CommandResult, type SessionActivity, type SessionInfo, type SessionStatus, type ThinkingLevel } from "../api";
+import { forgetCachedNewSession, isCachedNewSessionInfo, markCachedNewSessionInfo, rememberCachedNewSession, stripCachedNewSessionMarker } from "../cachedNewSessions";
 import { textMessage } from "../chatMessages";
+import { clearDraft, moveDraft } from "../promptDraftStorage";
 import { ChatTranscriptStore } from "../chatTranscriptStore";
 import { isShellInput } from "../inputModes";
 import { SessionSocket, type GlobalSessionEvent, type SessionUiEvent } from "../sessionSocket";
@@ -64,8 +66,10 @@ export class SessionController {
     if (!workspace) return;
     try {
       const session = await this.api.startSession(workspace.path);
-      this.setState({ sessions: [session, ...this.getState().sessions] });
-      await this.selectSession(session);
+      rememberCachedNewSession(session);
+      const cachedSession = markCachedNewSessionInfo(session);
+      this.setState({ sessions: [cachedSession, ...this.getState().sessions] });
+      await this.selectSession(cachedSession);
     } catch (error) {
       this.setState({ error: String(error) });
     }
@@ -116,7 +120,12 @@ export class SessionController {
       this.socket.setHandler((event) => { this.applyEvent(event); });
       if (options?.updateUrl !== false) this.updateUrl();
     } catch (error) {
-      if (seq === this.selectionSeq) this.setState({ error: String(error) });
+      if (seq !== this.selectionSeq || this.getState().selectedSession?.id !== session.id) return;
+      if (isCachedNewSessionInfo(session) && isSessionNotFoundError(error)) {
+        await this.recreateCachedNewSession(session, options);
+        return;
+      }
+      this.setState({ error: String(error) });
     }
   }
 
@@ -145,6 +154,7 @@ export class SessionController {
     if (!session || session.archived === true) return;
     try {
       await this.api.prompt(session.id, text, streamingBehavior);
+      this.markCachedNewSessionPersisted(session);
     } catch (error) {
       this.setState({ error: String(error) });
     }
@@ -156,6 +166,7 @@ export class SessionController {
     this.setState({ messages: [...this.getState().messages, textMessage("user", text)] });
     try {
       await this.api.shell(session.id, text);
+      this.markCachedNewSessionPersisted(session);
     } catch (error) {
       this.setState({ messages: [...this.getState().messages, textMessage("system", String(error))], error: String(error) });
     }
@@ -167,6 +178,7 @@ export class SessionController {
     this.setState({ messages: [...this.getState().messages, textMessage("user", text)] });
     try {
       this.applyCommandResult(await this.api.runCommand(session.id, text));
+      this.markCachedNewSessionPersisted(session);
     } catch (error) {
       this.setState({ messages: [...this.getState().messages, textMessage("system", String(error))], error: String(error) });
     }
@@ -189,6 +201,10 @@ export class SessionController {
 
   async archiveSession(session = this.getState().selectedSession) {
     if (!session) return;
+    if (isCachedNewSessionInfo(session)) {
+      await this.deleteCachedNewSession(session);
+      return;
+    }
     try {
       await this.api.archive(session.id);
       const state = this.getState();
@@ -203,6 +219,24 @@ export class SessionController {
       }
     } catch (error) {
       this.setState({ error: String(error) });
+    }
+  }
+
+  async deleteCachedNewSession(session = this.getState().selectedSession) {
+    if (!isCachedNewSessionInfo(session)) return;
+    void this.api.stop(session.id).catch(() => {
+      // Best-effort cleanup for browser-cached sessions that may not exist server-side anymore.
+    });
+    forgetCachedNewSession(session.id);
+    clearDraft(session.id);
+    const sessions = this.getState().sessions.filter((candidate) => candidate.id !== session.id);
+    this.setState({ sessions });
+    if (this.getState().selectedSession?.id !== session.id) return;
+    const next = sessions.find((candidate) => candidate.archived !== true) ?? sessions[0];
+    if (next !== undefined) await this.selectSession(next);
+    else {
+      this.clearActiveSession();
+      this.updateUrl();
     }
   }
 
@@ -332,6 +366,26 @@ export class SessionController {
     });
   }
 
+  private async recreateCachedNewSession(session: SessionInfo, options?: { updateUrl?: boolean | undefined }): Promise<void> {
+    try {
+      const replacement = await this.api.startSession(session.cwd);
+      rememberCachedNewSession(replacement);
+      moveDraft(session.id, replacement.id);
+      forgetCachedNewSession(session.id);
+      const cachedReplacement = markCachedNewSessionInfo(replacement);
+      this.setState({ sessions: [cachedReplacement, ...this.getState().sessions.filter((candidate) => candidate.id !== session.id)], error: "" });
+      await this.selectSession(cachedReplacement, { updateUrl: false });
+      this.updateUrl(options?.updateUrl === false ? { replace: true } : undefined);
+    } catch (error) {
+      this.setState({ error: String(error) });
+    }
+  }
+
+  private markCachedNewSessionPersisted(session: SessionInfo): void {
+    if (!isCachedNewSessionInfo(session)) return;
+    this.replaceSession(stripCachedNewSessionMarker(session));
+  }
+
   private applyCommandResult(result: CommandResult) {
     if (result.type === "select") {
       this.setState({ commandDialog: result });
@@ -454,5 +508,9 @@ function isTranscriptEvent(event: SessionUiEvent): boolean {
 
 function isHighFrequencyTranscriptEvent(event: SessionUiEvent): boolean {
   return event.type === "assistant.delta" || event.type === "assistant.thinking.delta" || event.type === "shell.chunk";
+}
+
+function isSessionNotFoundError(error: unknown): boolean {
+  return error instanceof Error && error.message.toLowerCase().includes("session not found");
 }
 
