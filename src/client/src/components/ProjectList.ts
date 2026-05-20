@@ -52,7 +52,7 @@ export class ProjectList extends LitElement {
             @keydown=${(event: KeyboardEvent) => { activateSelectableRowFromKeyboard(event, () => this.onSelect?.(project)); }}
           >
             <div class="action-main">
-              <span>${project.name}</span><small>${this.renderActivity(project)}${project.path}</small>
+              <span class="action-name">${project.name}</span><small>${this.renderActivity(project)}${project.path}</small>
             </div>
             <div class="action-menu">
               <button class="action-menu-toggle" title="Project actions" aria-label=${`Actions for ${project.name}`} @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(project.id, event.currentTarget); }}>⋯</button>

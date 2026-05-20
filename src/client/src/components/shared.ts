@@ -180,6 +180,7 @@ export const listStyles = css`
   .action-row.selected .action-main, .action-row.selected .action-menu-toggle { border-color: var(--pi-accent); background: var(--pi-selection-bg); }
   .action-row.archived .action-main { color: var(--pi-muted); }
   .action-main { box-sizing: border-box; min-width: 0; width: 100%; border: 1px solid var(--pi-border); border-top-right-radius: 0; border-bottom-right-radius: 0; border-top-left-radius: 8px; border-bottom-left-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px 7px calc(9px + var(--depth, 0) * 16px); text-align: left; }
+  .action-name { display: -webkit-box; max-height: 2.5em; overflow: hidden; overflow-wrap: anywhere; line-height: 1.25; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
   .action-row:not(.selected):hover .action-main { background: var(--pi-surface-hover); }
   .workspace-row .action-main { border-radius: 8px; }
   .tree-marker { color: var(--pi-dim); margin-right: 5px; }
@@ -201,6 +202,11 @@ export const listStyles = css`
   .workspace-label-item, .workspace-label-render, .workspace-label-separator { color: var(--pi-muted); }
   .workspace-label-link { color: var(--pi-accent); text-decoration: none; }
   .workspace-label-link:hover, .workspace-label-link:focus { text-decoration: underline; }
+  .row-overflow-lens { position: fixed; z-index: 40; box-sizing: border-box; width: max-content; overflow: hidden; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface-hover); color: var(--pi-text); padding: 7px 9px 7px calc(9px + var(--depth, 0) * 16px); cursor: pointer; }
+  .action-row.selected > .row-overflow-lens { border-color: var(--pi-accent); background: var(--pi-selection-bg); }
+  .row-overflow-lens small { overflow: visible; text-overflow: clip; white-space: nowrap; }
+  .row-overflow-lens .workspace-label { display: inline-flex; max-width: none; overflow: visible; white-space: nowrap; flex-wrap: nowrap; }
+  .row-overflow-lens .workspace-label-base, .row-overflow-lens .workspace-label-item, .row-overflow-lens .workspace-label-render { overflow: visible; text-overflow: clip; white-space: nowrap; }
   @keyframes pulse { 0%, 100% { transform: scale(.75); opacity: .55; } 50% { transform: scale(1.2); opacity: 1; } }
 `;
 
