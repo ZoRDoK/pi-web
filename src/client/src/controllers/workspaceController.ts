@@ -15,7 +15,7 @@ export class WorkspaceController {
 
   clearSelection(options?: { updateUrl?: boolean | undefined }) {
     this.sessions.clearActiveSession();
-    this.setState({ selectedProject: undefined, selectedWorkspace: undefined, sessions: [], workspaces: [], fileTree: [], expandedDirs: {}, selectedFilePath: undefined, selectedFileContent: undefined, fileTreeStale: false, gitStatus: undefined, selectedDiffPath: undefined, selectedDiff: undefined, selectedStagedDiff: undefined, gitStale: false, error: "" });
+    this.setState({ selectedProject: undefined, selectedWorkspace: undefined, sessions: [], workspaces: [], fileTree: [], expandedDirs: {}, selectedFilePath: undefined, selectedFileContent: undefined, fileTreeStale: false, gitStatus: undefined, selectedDiffPath: undefined, selectedDiff: undefined, selectedStagedDiff: undefined, gitStale: false, selectedTerminalId: undefined, error: "" });
     if (options?.updateUrl !== false) this.updateUrl();
   }
 
@@ -27,7 +27,7 @@ export class WorkspaceController {
 
   async selectProject(project: Project, target?: RouteTarget) {
     this.sessions.clearActiveSession();
-    this.setState({ selectedProject: project, selectedWorkspace: undefined, sessions: [], workspaces: [], fileTree: [], expandedDirs: {}, selectedFilePath: undefined, selectedFileContent: undefined, fileTreeStale: false, gitStatus: undefined, selectedDiffPath: undefined, selectedDiff: undefined, selectedStagedDiff: undefined, gitStale: false, error: "" });
+    this.setState({ selectedProject: project, selectedWorkspace: undefined, sessions: [], workspaces: [], fileTree: [], expandedDirs: {}, selectedFilePath: undefined, selectedFileContent: undefined, fileTreeStale: false, gitStatus: undefined, selectedDiffPath: undefined, selectedDiff: undefined, selectedStagedDiff: undefined, gitStale: false, selectedTerminalId: undefined, error: "" });
     try {
       const workspaces = await api.workspaces(project.id);
       this.setState({ workspaces, workspacesByProjectId: { ...this.getState().workspacesByProjectId, [project.id]: workspaces } });
@@ -42,7 +42,7 @@ export class WorkspaceController {
   async selectWorkspace(workspace: Workspace, target?: { sessionId?: string | undefined; updateUrl?: boolean | undefined }) {
     this.workspaceSelection.rememberWorkspace(workspace);
     this.sessions.clearActiveSession();
-    this.setState({ selectedWorkspace: workspace, sessions: [], fileTree: [], expandedDirs: {}, selectedFilePath: undefined, selectedFileContent: undefined, fileTreeStale: false, gitStatus: undefined, selectedDiffPath: undefined, selectedDiff: undefined, selectedStagedDiff: undefined, gitStale: false, error: "" });
+    this.setState({ selectedWorkspace: workspace, sessions: [], fileTree: [], expandedDirs: {}, selectedFilePath: undefined, selectedFileContent: undefined, fileTreeStale: false, gitStatus: undefined, selectedDiffPath: undefined, selectedDiff: undefined, selectedStagedDiff: undefined, gitStale: false, selectedTerminalId: undefined, error: "" });
     try {
       const sessions = mergeCachedNewSessions(workspace.path, await api.sessions(workspace.path));
       this.setState({ sessions });

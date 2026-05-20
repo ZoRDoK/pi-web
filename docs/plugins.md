@@ -311,6 +311,7 @@ interface PluginRuntimeContext {
   configureAuth: () => void | Promise<void>;
   logoutAuth: () => void | Promise<void>;
   selectWorkspaceTool: (tool: QualifiedContributionId) => void;
+  openTerminal?: (options?: { terminalId?: string }) => void;
   refreshFiles: () => void | Promise<void>;
   refreshGit: () => void | Promise<void>;
   startSession: () => void | Promise<void>;
@@ -326,6 +327,7 @@ Notes:
 - Other `state` fields may exist at runtime, but they are Pi Web internals and can change quickly.
 - `enabled` is evaluated when the action palette asks for actions.
 - `selectWorkspaceTool()` expects a qualified panel id such as `my-plugin:workspace.info`.
+- `openTerminal()` switches to the built-in terminal panel. Pass `{ terminalId }` to deep-link to a specific terminal after creating one through the terminal API.
 
 #### Keyboard shortcuts
 
@@ -366,12 +368,17 @@ interface WorkspacePanelContribution {
   title: string;
   order?: number;
   visible?: (context: { workspace: Workspace }) => boolean;
-  badge?: (context: { workspace: Workspace }) => string | number | TemplateResult | undefined;
-  render: (context: { workspace: Workspace }) => TemplateResult;
+  badge?: (context: WorkspacePanelContext) => string | number | TemplateResult | undefined;
+  render: (context: WorkspacePanelContext) => TemplateResult;
+}
+
+interface WorkspacePanelContext {
+  workspace: Workspace;
+  openTerminal?: (options?: { terminalId?: string }) => void;
 }
 ```
 
-Only `workspace` is documented as stable for panel callbacks. Other fields may exist at runtime, but they are Pi Web internals and can change quickly. If a panel needs file, git, or session data, prefer explicit `fetch()` calls and keep them isolated.
+`workspace` and `openTerminal()` are documented as stable for panel callbacks. Other fields may exist at runtime, but they are Pi Web internals and can change quickly. Use `openTerminal?.({ terminalId })` when a panel creates a terminal and wants Pi Web to navigate to that specific terminal. If a panel needs file, git, or session data, prefer explicit `fetch()` calls and keep them isolated.
 
 Useful workspace shape:
 

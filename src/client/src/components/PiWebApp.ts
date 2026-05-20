@@ -11,6 +11,7 @@ import { GitController } from "../controllers/gitController";
 import { ProjectController } from "../controllers/projectController";
 import { SessionController } from "../controllers/sessionController";
 import { WorkspaceController } from "../controllers/workspaceController";
+import { InMemoryTerminalSelectionMemory } from "../controllers/terminalSelection";
 import { KeyboardShortcutDispatcher } from "../keyboardShortcuts";
 import { RealtimeSocket } from "../sessionSocket";
 import type { QualifiedContributionId, QualifiedThemeContribution, QualifiedThemePairContribution, QualifiedWorkspacePanelContribution, PluginRuntimeContext, WorkspacePanelContext } from "../plugins/types";
@@ -19,7 +20,7 @@ import { corePlugin } from "../plugins/core";
 import { themePackPlugin } from "../plugins/themes";
 import { loadExternalPlugins } from "../plugins/external";
 import { PluginRegistry } from "../plugins/registry";
-import { queryNamespace, readNamespacedString } from "../namespacedQueryArgs";
+import { queryNamespace, readNamespacedString, setNamespacedQueryKey } from "../namespacedQueryArgs";
 import { readRoute, writeRoute, type AppRoute } from "../route";
 import "./ProjectList";
 import "./WorkspaceList";
@@ -42,6 +43,7 @@ const PI_WEB_STATUS_REFRESH_MS = 15 * 60 * 1000;
 const THEME_AUTO_ON_VALUE = "auto:on";
 const THEME_AUTO_OFF_VALUE = "auto:off";
 const THEME_OPTION_PREFIX = "theme:";
+const TERMINAL_ROUTE_NAMESPACE = queryNamespace("core:workspace.terminal");
 
 @customElement("pi-web-app")
 export class PiWebApp extends LitElement {
@@ -89,6 +91,7 @@ export class PiWebApp extends LitElement {
   private readonly keyboard = new KeyboardShortcutDispatcher();
   private readonly realtime = new RealtimeSocket();
   private readonly activeTerminalIds = new Set<string>();
+  private readonly terminalSelection = new InMemoryTerminalSelectionMemory();
   private readonly mobileNavigationMedia = typeof window !== "undefined" && "matchMedia" in window ? window.matchMedia("(max-width: 760px)") : undefined;
   private readonly systemLightThemeMedia = typeof window !== "undefined" && "matchMedia" in window ? window.matchMedia("(prefers-color-scheme: light)") : undefined;
   private observedContextItems: HTMLElement | undefined;
@@ -97,6 +100,8 @@ export class PiWebApp extends LitElement {
   private mobileTabsResizeObserver: ResizeObserver | undefined;
   private terminalAutoStartWorkspaceId: string | undefined;
   private piWebStatusTimer: number | undefined;
+  private routeRestoreInProgress = false;
+  private restoringRouteTerminalId: string | undefined;
   private readonly plugins = createPluginRegistry();
   private themePreference: ThemePreference = readStoredThemePreference() ?? DEFAULT_THEME_PREFERENCE;
   @state() private activeThemeId: QualifiedContributionId = CLASSIC_THEME_ID;
@@ -227,19 +232,29 @@ export class PiWebApp extends LitElement {
     const route = readRoute();
     const selectedFilePath = readNamespacedString(queryNamespace("core:workspace.files"), "file");
     const selectedDiffPath = readNamespacedString(queryNamespace("core:workspace.git"), "diff");
-    this.setState({ workspaceTool: route.tool ?? this.state.workspaceTool, mainView: route.view ?? this.defaultRouteView(), selectedFilePath, selectedDiffPath });
-    if (route.projectId === undefined || route.projectId === "") return;
-    if (this.routeMatchesCurrentSelection(route)) {
+    const selectedTerminalId = readNamespacedString(TERMINAL_ROUTE_NAMESPACE, "terminal");
+    this.routeRestoreInProgress = true;
+    this.restoringRouteTerminalId = selectedTerminalId;
+    try {
+      this.setState({ workspaceTool: route.tool ?? this.state.workspaceTool, mainView: route.view ?? this.defaultRouteView(), selectedFilePath, selectedDiffPath, selectedTerminalId });
+      if (route.projectId === undefined || route.projectId === "") return;
+      if (this.routeMatchesCurrentSelection(route)) {
+        if (selectedTerminalId !== undefined) this.rememberSelectedTerminal(selectedTerminalId);
+        await this.refreshRestoredWorkspaceTool(route.tool, selectedFilePath);
+        this.git.updatePolling();
+        return;
+      }
+      const project = this.state.projects.find((p) => p.id === route.projectId);
+      if (!project) return;
+      await this.workspaces.selectProject(project, { workspaceId: route.workspaceId, sessionId: route.sessionId, updateUrl });
+      this.setState({ selectedFilePath, selectedDiffPath, selectedTerminalId });
+      if (selectedTerminalId !== undefined) this.rememberSelectedTerminal(selectedTerminalId);
       await this.refreshRestoredWorkspaceTool(route.tool, selectedFilePath);
       this.git.updatePolling();
-      return;
+    } finally {
+      this.routeRestoreInProgress = false;
+      this.restoringRouteTerminalId = undefined;
     }
-    const project = this.state.projects.find((p) => p.id === route.projectId);
-    if (!project) return;
-    await this.workspaces.selectProject(project, { workspaceId: route.workspaceId, sessionId: route.sessionId, updateUrl });
-    this.setState({ selectedFilePath, selectedDiffPath });
-    await this.refreshRestoredWorkspaceTool(route.tool, selectedFilePath);
-    this.git.updatePolling();
   }
 
   private routeMatchesCurrentSelection(route: AppRoute): boolean {
@@ -294,6 +309,28 @@ export class PiWebApp extends LitElement {
     this.git.updatePolling();
   }
 
+  private openTerminal(options?: { terminalId?: string | undefined }): void {
+    if (options?.terminalId !== undefined) this.selectTerminal(options.terminalId, { replace: true });
+    this.openWorkspaceTool("core:workspace.terminal");
+  }
+
+  private selectTerminal(terminalId: string | undefined, options?: { replace?: boolean | undefined }): void {
+    this.rememberSelectedTerminal(terminalId);
+    this.setState({ selectedTerminalId: terminalId });
+    this.writeSelectedTerminalToUrl(terminalId, options);
+  }
+
+  private rememberSelectedTerminal(terminalId: string | undefined): void {
+    const workspace = this.state.selectedWorkspace;
+    if (workspace === undefined) return;
+    if (terminalId === undefined) this.terminalSelection.forgetWorkspace(workspace.path);
+    else this.terminalSelection.rememberTerminal(workspace.path, terminalId);
+  }
+
+  private writeSelectedTerminalToUrl(terminalId: string | undefined, options?: { replace?: boolean | undefined }): void {
+    setNamespacedQueryKey(TERMINAL_ROUTE_NAMESPACE, "terminal", terminalId, options);
+  }
+
   private selectMainView(view: AppState["mainView"]) {
     if (view !== "navigation" && view !== "chat") {
       this.openWorkspaceTool(view);
@@ -308,7 +345,9 @@ export class PiWebApp extends LitElement {
     if (previous.selectedWorkspace?.id === next.selectedWorkspace?.id) return;
     this.terminalAutoStartWorkspaceId = undefined;
     this.activeTerminalIds.clear();
-    this.setState({ activeTerminalCount: 0 });
+    const selectedTerminalId = this.routeRestoreInProgress ? this.restoringRouteTerminalId : next.selectedWorkspace === undefined ? undefined : this.terminalSelection.latestTerminalId(next.selectedWorkspace.path);
+    this.setState({ activeTerminalCount: 0, selectedTerminalId });
+    if (!this.routeRestoreInProgress) this.writeSelectedTerminalToUrl(selectedTerminalId, { replace: true });
     if (next.selectedWorkspace === undefined) return;
     void this.refreshActiveTerminals(next.selectedWorkspace);
     this.refreshSelectedWorkspaceTool(next.workspaceTool);
@@ -339,6 +378,10 @@ export class PiWebApp extends LitElement {
     if (cwd !== workspace.path) return;
     if (event.type === "terminal.created" && !event.terminal.exited) this.activeTerminalIds.add(event.terminal.id);
     else this.activeTerminalIds.delete(event.type === "terminal.closed" ? event.terminalId : event.terminal.id);
+    if (event.type === "terminal.closed") {
+      this.terminalSelection.forgetTerminal(event.terminalId);
+      if (this.state.selectedTerminalId === event.terminalId) this.selectTerminal(undefined, { replace: true });
+    }
     this.setState({ activeTerminalCount: this.activeTerminalIds.size });
   }
 
@@ -372,7 +415,7 @@ export class PiWebApp extends LitElement {
 
   private renderWorkspacePanel() {
     const workspaceLabelItems = this.state.selectedWorkspace === undefined ? [] : this.plugins.getWorkspaceLabelItems(this.state, this.state.selectedWorkspace);
-    return html`<workspace-panel .workspace=${this.state.selectedWorkspace} .appState=${this.state} .tool=${this.state.workspaceTool} .panels=${this.visibleWorkspacePanels()} .workspaceLabelItems=${workspaceLabelItems} .fileTree=${this.state.fileTree} .expandedDirs=${this.state.expandedDirs} .selectedFilePath=${this.state.selectedFilePath} .selectedFileContent=${this.state.selectedFileContent} .fileTreeStale=${this.state.fileTreeStale} .gitStatus=${this.state.gitStatus} .selectedDiffPath=${this.state.selectedDiffPath} .selectedDiff=${this.state.selectedDiff} .selectedStagedDiff=${this.state.selectedStagedDiff} .gitStale=${this.state.gitStale} .activeTerminalCount=${this.state.activeTerminalCount} .terminalAutoStart=${this.terminalAutoStartWorkspaceId === this.state.selectedWorkspace?.id} .onSelectTool=${(tool: QualifiedContributionId) => { this.openWorkspaceTool(tool); }} .onRefreshFiles=${() => this.files.refreshFiles()} .onExpandDir=${(path: string) => this.files.expandDir(path)} .onSelectFile=${(path: string) => this.files.selectFile(path)} .onRefreshGit=${() => this.git.refreshGit()} .onSelectDiff=${(path: string) => this.git.selectDiff(path)}></workspace-panel>`;
+    return html`<workspace-panel .workspace=${this.state.selectedWorkspace} .appState=${this.state} .tool=${this.state.workspaceTool} .panels=${this.visibleWorkspacePanels()} .workspaceLabelItems=${workspaceLabelItems} .fileTree=${this.state.fileTree} .expandedDirs=${this.state.expandedDirs} .selectedFilePath=${this.state.selectedFilePath} .selectedFileContent=${this.state.selectedFileContent} .fileTreeStale=${this.state.fileTreeStale} .gitStatus=${this.state.gitStatus} .selectedDiffPath=${this.state.selectedDiffPath} .selectedDiff=${this.state.selectedDiff} .selectedStagedDiff=${this.state.selectedStagedDiff} .gitStale=${this.state.gitStale} .activeTerminalCount=${this.state.activeTerminalCount} .selectedTerminalId=${this.state.selectedTerminalId} .terminalAutoStart=${this.terminalAutoStartWorkspaceId === this.state.selectedWorkspace?.id} .openTerminal=${(options?: { terminalId?: string | undefined }) => { this.openTerminal(options); }} .onSelectTool=${(tool: QualifiedContributionId) => { this.openWorkspaceTool(tool); }} .onRefreshFiles=${() => this.files.refreshFiles()} .onExpandDir=${(path: string) => this.files.expandDir(path)} .onSelectFile=${(path: string) => this.files.selectFile(path)} .onRefreshGit=${() => this.git.refreshGit()} .onSelectDiff=${(path: string) => this.git.selectDiff(path)} .onSelectTerminal=${(terminalId: string | undefined, options?: { replace?: boolean | undefined }) => { this.selectTerminal(terminalId, options); }}></workspace-panel>`;
   }
 
   private renderNavigationPanel(autoSwitchToChat: boolean) {
@@ -486,12 +529,15 @@ export class PiWebApp extends LitElement {
       selectedStagedDiff: this.state.selectedStagedDiff,
       gitStale: this.state.gitStale,
       activeTerminalCount: this.state.activeTerminalCount,
+      selectedTerminalId: this.state.selectedTerminalId,
       terminalAutoStart: this.terminalAutoStartWorkspaceId === workspace.id,
+      openTerminal: (options) => { this.openTerminal(options); },
       onRefreshFiles: () => { void this.files.refreshFiles(); },
       onExpandDir: (path: string) => { void this.files.expandDir(path); },
       onSelectFile: (path: string) => { void this.files.selectFile(path); },
       onRefreshGit: () => { void this.git.refreshGit(); },
       onSelectDiff: (path: string) => { void this.git.selectDiff(path); },
+      onSelectTerminal: (terminalId: string | undefined, options?: { replace?: boolean | undefined }) => { this.selectTerminal(terminalId, options); },
     };
   }
 
@@ -527,6 +573,7 @@ export class PiWebApp extends LitElement {
       openThemePicker: () => { this.openThemeDialog(); },
       selectMainView: (view) => { this.selectMainView(view); },
       selectWorkspaceTool: (tool) => { this.openWorkspaceTool(tool); },
+      openTerminal: (options) => { this.openTerminal(options); },
       refreshFiles: () => this.files.refreshFiles(),
       refreshGit: () => this.git.refreshGit(),
       startSession: () => this.withChatScrollTransition(() => this.sessions.startSession()),

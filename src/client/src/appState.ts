@@ -40,6 +40,7 @@ export interface AppState {
   selectedStagedDiff: GitDiffResponse | undefined;
   gitStale: boolean;
   activeTerminalCount: number;
+  selectedTerminalId: string | undefined;
   piWebStatus: PiWebStatusResponse | undefined;
   error: string;
 }
@@ -90,6 +91,7 @@ export function initialAppState(): AppState {
     selectedStagedDiff: undefined,
     gitStale: false,
     activeTerminalCount: 0,
+    selectedTerminalId: undefined,
     piWebStatus: undefined,
     error: "",
   };

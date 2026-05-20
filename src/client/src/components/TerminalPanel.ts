@@ -1,9 +1,10 @@
-import { css, html, LitElement } from "lit";
+import { css, html, LitElement, type PropertyValues } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import { Terminal, type ITerminalOptions, type ITheme } from "@xterm/xterm";
 import { FitAddon, type ITerminalDimensions } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { terminalSocket, terminalsApi, type TerminalInfo, type Workspace } from "../api";
+import { selectFallbackTerminal, selectPreferredTerminal } from "../controllers/terminalSelection";
 
 const TERMINAL_OPTIONS_BASE: ITerminalOptions = {
   cursorBlink: true,
@@ -17,7 +18,9 @@ const DEFAULT_TERMINAL_SIZE: TerminalSize = { cols: 100, rows: 30 };
 @customElement("terminal-panel")
 export class TerminalPanel extends LitElement {
   @property({ attribute: false }) workspace: Workspace | undefined;
+  @property({ attribute: false }) selectedTerminalId: string | undefined;
   @property({ type: Boolean }) autoStart = false;
+  @property({ attribute: false }) onSelectTerminal: (terminalId: string | undefined, options?: { replace?: boolean | undefined }) => void = () => undefined;
   @query(".terminal-host") private terminalHost?: HTMLDivElement | null;
   @state() private terminals: TerminalInfo[] = [];
   @state() private selectedId: string | undefined;
@@ -57,7 +60,7 @@ export class TerminalPanel extends LitElement {
     super.disconnectedCallback();
   }
 
-  override willUpdate(): void {
+  override willUpdate(changed: PropertyValues<this>): void {
     const cwd = this.workspace?.path;
     if (cwd !== this.observedCwd) {
       this.observedCwd = cwd;
@@ -65,11 +68,22 @@ export class TerminalPanel extends LitElement {
       this.terminals = [];
       this.selectedId = undefined;
       this.disposeTerminalView();
+      return;
+    }
+    if (changed.has("selectedTerminalId")) {
+      const previousTerminalId = changed.get("selectedTerminalId");
+      if (previousTerminalId !== undefined && this.selectedTerminalId === undefined) {
+        this.loadedCwd = undefined;
+        this.selectTerminalIdInView(undefined);
+        return;
+      }
+      this.applyRequestedTerminalSelection();
     }
   }
 
-  override updated(): void {
+  override updated(changed: PropertyValues<this>): void {
     this.loadVisibleWorkspaceTerminals();
+    if (changed.has("selectedTerminalId") && this.shouldReloadForRequestedTerminal()) void this.loadTerminals();
     this.ensureTerminalView();
   }
 
@@ -87,13 +101,43 @@ export class TerminalPanel extends LitElement {
       if (this.workspace === undefined) return;
       const terminals = await terminalsApi.terminals(this.workspace.projectId, this.workspace.id);
       this.terminals = terminals;
-      this.selectedId = terminals.find((terminal) => !terminal.exited)?.id ?? terminals[0]?.id;
+      this.selectPreferredLoadedTerminal({ replaceUrl: true });
       if (terminals.length === 0 && this.autoStart) await this.startTerminal();
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
     } finally {
       this.loading = false;
     }
+  }
+
+  private applyRequestedTerminalSelection(): void {
+    if (this.selectedTerminalId !== undefined && !this.terminals.some((terminal) => terminal.id === this.selectedTerminalId)) return;
+    this.selectPreferredLoadedTerminal({ replaceUrl: true });
+  }
+
+  private shouldReloadForRequestedTerminal(): boolean {
+    const cwd = this.workspace?.path;
+    return this.visible
+      && cwd !== undefined
+      && cwd === this.loadedCwd
+      && this.selectedTerminalId !== undefined
+      && !this.loading
+      && !this.terminals.some((terminal) => terminal.id === this.selectedTerminalId);
+  }
+
+  private selectPreferredLoadedTerminal(options?: { replaceUrl?: boolean | undefined }): void {
+    let terminal = selectPreferredTerminal(this.terminals, { targetTerminalId: this.selectedTerminalId });
+    if (terminal === undefined && this.selectedTerminalId !== undefined) terminal = selectFallbackTerminal(this.terminals);
+    this.selectTerminalIdInView(terminal?.id);
+    if (terminal?.id !== this.selectedTerminalId || (terminal === undefined && this.selectedTerminalId !== undefined)) {
+      this.onSelectTerminal(terminal?.id, { replace: options?.replaceUrl === true });
+    }
+  }
+
+  private selectTerminalIdInView(id: string | undefined): void {
+    if (this.selectedId === id) return;
+    this.selectedId = id;
+    this.disposeTerminalView();
   }
 
   private async startTerminal(): Promise<void> {
@@ -116,9 +160,10 @@ export class TerminalPanel extends LitElement {
       await terminalsApi.closeTerminal(this.workspace.projectId, this.workspace.id, id);
       const next = this.terminals.filter((terminal) => terminal.id !== id);
       this.terminals = next;
-      if (this.selectedId === id) {
-        this.selectedId = next[0]?.id;
-        this.disposeTerminalView();
+      if (this.selectedId === id || this.selectedTerminalId === id) {
+        const nextSelectedId = selectFallbackTerminal(next)?.id;
+        this.selectTerminalIdInView(nextSelectedId);
+        this.onSelectTerminal(nextSelectedId, { replace: true });
       }
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
@@ -126,9 +171,8 @@ export class TerminalPanel extends LitElement {
   }
 
   private selectTerminal(id: string): void {
-    if (this.selectedId === id) return;
-    this.selectedId = id;
-    this.disposeTerminalView();
+    if (this.selectedId !== id) this.selectTerminalIdInView(id);
+    this.onSelectTerminal(id);
   }
 
   private ensureTerminalView(): void {

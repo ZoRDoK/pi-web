@@ -47,6 +47,7 @@ export interface PluginRuntimeContext {
   openThemePicker: () => void;
   selectMainView: (view: AppState["mainView"]) => void;
   selectWorkspaceTool: (tool: QualifiedContributionId) => void;
+  openTerminal?: (options?: { terminalId?: string | undefined }) => void;
   refreshFiles: () => void | Promise<void>;
   refreshGit: () => void | Promise<void>;
   startSession: () => void | Promise<void>;
@@ -88,12 +89,15 @@ export interface WorkspacePanelContext {
   selectedStagedDiff: GitDiffResponse | undefined;
   gitStale: boolean;
   activeTerminalCount: number;
+  selectedTerminalId: string | undefined;
   terminalAutoStart: boolean;
+  openTerminal?: (options?: { terminalId?: string | undefined }) => void;
   onRefreshFiles: () => void;
   onExpandDir: (path: string) => void;
   onSelectFile: (path: string) => void;
   onRefreshGit: () => void;
   onSelectDiff: (path: string) => void;
+  onSelectTerminal: (terminalId: string | undefined, options?: { replace?: boolean | undefined }) => void;
 }
 
 export interface WorkspacePanelContribution {

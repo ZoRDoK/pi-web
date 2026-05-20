@@ -31,7 +31,10 @@ export class WorkspacePanel extends LitElement {
   @property({ attribute: false }) onRefreshGit: () => void = () => undefined;
   @property({ attribute: false }) onSelectDiff: (path: string) => void = () => undefined;
   @property({ type: Number }) activeTerminalCount = 0;
+  @property({ attribute: false }) selectedTerminalId: string | undefined;
   @property({ type: Boolean }) terminalAutoStart = false;
+  @property({ attribute: false }) openTerminal: (options?: { terminalId?: string | undefined }) => void = () => undefined;
+  @property({ attribute: false }) onSelectTerminal: (terminalId: string | undefined, options?: { replace?: boolean | undefined }) => void = () => undefined;
   @query(".workspace-header-strip") private workspaceHeaderStrip?: HTMLElement | null;
   @state() private workspaceHeaderCanScrollLeft = false;
   @state() private workspaceHeaderCanScrollRight = false;
@@ -140,12 +143,15 @@ export class WorkspacePanel extends LitElement {
       selectedStagedDiff: this.selectedStagedDiff,
       gitStale: this.gitStale,
       activeTerminalCount: this.activeTerminalCount,
+      selectedTerminalId: this.selectedTerminalId,
       terminalAutoStart: this.terminalAutoStart,
+      openTerminal: this.openTerminal,
       onRefreshFiles: this.onRefreshFiles,
       onExpandDir: this.onExpandDir,
       onSelectFile: this.onSelectFile,
       onRefreshGit: this.onRefreshGit,
       onSelectDiff: this.onSelectDiff,
+      onSelectTerminal: this.onSelectTerminal,
     };
   }
 
