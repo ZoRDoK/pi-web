@@ -430,18 +430,36 @@ export class PiWebApp extends LitElement {
     this.openWorkspaceTool("core:workspace.terminal");
   }
 
-  private terminalCommandRunsForOrigin(origin: string): TerminalCommandRunsInternalRuntime {
-    const existing = this.terminalCommandRunRuntimes.get(origin);
+  private terminalCommandRunsForOrigin(origin: string, machineId = selectedMachineId(this.state)): TerminalCommandRunsInternalRuntime {
+    const key = machineScopedKey(machineId, origin);
+    const existing = this.terminalCommandRunRuntimes.get(key);
     if (existing !== undefined) return existing;
     const runtime = createTerminalCommandRunsRuntime(origin, {
-      openTerminal: (workspace, options) => { void this.openRuntimeTerminal(workspace, options); },
+      api: {
+        runTerminalCommand: (runtimeOrigin, input) => terminalsApi.runTerminalCommand(runtimeOrigin, input, machineId),
+        listCommandRuns: (filter) => terminalsApi.listCommandRuns(filter, machineId),
+        getCommandRun: (runId) => terminalsApi.getCommandRun(runId, machineId),
+      },
+      openTerminal: (workspace, options) => { void this.openRuntimeTerminal(machineId, workspace, options); },
     });
-    this.terminalCommandRunRuntimes.set(origin, runtime);
+    this.terminalCommandRunRuntimes.set(key, runtime);
     return runtime;
   }
 
-  private async openRuntimeTerminal(workspace: Workspace | undefined, options?: { terminalId?: string | undefined }): Promise<void> {
-    if (workspace !== undefined && this.state.selectedWorkspace?.id !== workspace.id) await this.workspaces.selectWorkspace(workspace);
+  private async openRuntimeTerminal(machineId: string, workspace: Workspace | undefined, options?: { terminalId?: string | undefined }): Promise<void> {
+    if (selectedMachineId(this.state) !== machineId) {
+      const machine = this.state.machines.find((candidate) => candidate.id === machineId);
+      if (machine === undefined) {
+        this.setState({ error: "Machine not found for terminal command run" });
+        return;
+      }
+      await this.machines.selectMachine(machine);
+    }
+    if (workspace !== undefined && (this.state.selectedWorkspace?.id !== workspace.id || this.state.selectedProject?.id !== workspace.projectId)) {
+      const project = this.state.projects.find((candidate) => candidate.id === workspace.projectId);
+      if (project !== undefined && this.state.selectedProject?.id !== project.id) await this.workspaces.selectProject(project, { workspaceId: workspace.id });
+      else await this.workspaces.selectWorkspace(workspace);
+    }
     this.openTerminal(options);
   }
 
@@ -525,9 +543,10 @@ export class PiWebApp extends LitElement {
   }
 
   private async refreshActiveTerminals(workspace: Workspace): Promise<void> {
+    const machineId = selectedMachineId(this.state);
     try {
-      const terminals = await terminalsApi.terminals(workspace.projectId, workspace.id, selectedMachineId(this.state));
-      if (this.state.selectedWorkspace?.id !== workspace.id) return;
+      const terminals = await terminalsApi.terminals(workspace.projectId, workspace.id, machineId);
+      if (selectedMachineId(this.state) !== machineId || this.state.selectedWorkspace?.id !== workspace.id) return;
       this.activeTerminalIds.clear();
       for (const terminal of terminals) {
         if (!terminal.exited) this.activeTerminalIds.add(terminal.id);
@@ -824,25 +843,27 @@ export class PiWebApp extends LitElement {
     const confirmed = confirm(`Delete workspace ${label}?\n\nThis will run git worktree remove and delete:\n${workspace.path}\n\nThe Git branch will not be deleted.`);
     if (!confirmed) return;
 
+    const machineId = selectedMachineId(this.state);
     try {
       const mainWorkspace = await this.mainWorkspaceForProject(workspace.projectId);
       if (mainWorkspace === undefined) {
         this.setState({ error: "Project main workspace not found" });
         return;
       }
-      const handle = await this.terminalCommandRunsForOrigin("core").runCommand({
+      if (selectedMachineId(this.state) !== machineId) return;
+      const handle = await this.terminalCommandRunsForOrigin("core", machineId).runCommand({
         workspace: mainWorkspace,
         title: `Delete workspace: ${label}`,
         command: `git worktree remove ${shellQuote(workspace.path)}`,
         open: true,
         metadata: workspaceDeletionMetadata(workspace),
       });
-      this.recordWorkspaceDeletionRun(handle.run);
-      void handle.completed.then((run) => this.handleCompletedWorkspaceDeletionRun(run)).catch((error: unknown) => {
-        this.setState({ error: `Workspace deletion failed. See terminal output. ${errorMessage(error)}` });
+      this.recordWorkspaceDeletionRun(handle.run, machineId);
+      void handle.completed.then((run) => this.handleCompletedWorkspaceDeletionRun(run, machineId)).catch((error: unknown) => {
+        if (selectedMachineId(this.state) === machineId) this.setState({ error: `Workspace deletion failed. See terminal output. ${errorMessage(error)}` });
       });
     } catch (error) {
-      this.setState({ error: `Failed to start workspace deletion: ${errorMessage(error)}` });
+      if (selectedMachineId(this.state) === machineId) this.setState({ error: `Failed to start workspace deletion: ${errorMessage(error)}` });
     }
   }
 
@@ -852,7 +873,8 @@ export class PiWebApp extends LitElement {
     return workspaces.find((workspace) => workspace.isMain) ?? workspaces[0];
   }
 
-  private recordWorkspaceDeletionRun(run: TerminalCommandRun): void {
+  private recordWorkspaceDeletionRun(run: TerminalCommandRun, machineId: string): void {
+    if (selectedMachineId(this.state) !== machineId) return;
     const workspaceId = targetWorkspaceIdForRun(run);
     if (workspaceId === undefined) return;
     this.setState({ workspaceDeletionRuns: { ...this.state.workspaceDeletionRuns, [workspaceId]: run } });
@@ -861,6 +883,7 @@ export class PiWebApp extends LitElement {
 
   private async refreshWorkspaceDeletionRuns(): Promise<void> {
     if (this.refreshingWorkspaceDeletionRuns) return;
+    const machineId = selectedMachineId(this.state);
     const project = this.state.selectedProject;
     if (project === undefined) {
       this.setState({ workspaceDeletionRuns: {} });
@@ -870,11 +893,12 @@ export class PiWebApp extends LitElement {
 
     this.refreshingWorkspaceDeletionRuns = true;
     try {
-      const runs = await this.terminalCommandRunsForOrigin("core").listCommandRuns(workspaceDeletionRunFilter(project.id));
+      const runs = await this.terminalCommandRunsForOrigin("core", machineId).listCommandRuns(workspaceDeletionRunFilter(project.id));
+      if (selectedMachineId(this.state) !== machineId) return;
       const latestRuns = latestWorkspaceDeletionRuns(runs);
       this.setState({ workspaceDeletionRuns: latestRuns });
       for (const run of Object.values(latestRuns)) {
-        if (!isWorkspaceDeletionRunPending(run)) await this.handleCompletedWorkspaceDeletionRun(run);
+        if (!isWorkspaceDeletionRunPending(run)) await this.handleCompletedWorkspaceDeletionRun(run, machineId);
       }
     } catch (error) {
       console.warn("Failed to refresh workspace deletion runs", error);
@@ -896,14 +920,17 @@ export class PiWebApp extends LitElement {
     }
   }
 
-  private async handleCompletedWorkspaceDeletionRun(run: TerminalCommandRun): Promise<void> {
-    if (this.handledWorkspaceDeletionRunIds.has(run.id)) return;
+  private async handleCompletedWorkspaceDeletionRun(run: TerminalCommandRun, machineId = selectedMachineId(this.state)): Promise<void> {
+    if (selectedMachineId(this.state) !== machineId) return;
+    const runKey = machineScopedKey(machineId, run.id);
+    if (this.handledWorkspaceDeletionRunIds.has(runKey)) return;
     const workspaceId = targetWorkspaceIdForRun(run);
     if (workspaceId === undefined) return;
-    this.handledWorkspaceDeletionRunIds.add(run.id);
+    this.handledWorkspaceDeletionRunIds.add(runKey);
 
     if (run.status === "succeeded") {
       await this.workspaces.refreshAfterWorkspaceDeleted(run.projectId, workspaceId);
+      if (selectedMachineId(this.state) !== machineId) return;
       this.setState({ workspaceDeletionRuns: omitWorkspaceDeletionRun(this.state.workspaceDeletionRuns, workspaceId) });
       this.updateWorkspaceDeletionPolling();
       return;
@@ -1381,6 +1408,10 @@ function isActive(state: Pick<AppState, "status" | "activity">): boolean {
 
 function isTerminalEvent(event: RealtimeEvent): event is TerminalUiEvent {
   return event.type === "terminal.created" || event.type === "terminal.exited" || event.type === "terminal.closed";
+}
+
+function machineScopedKey(machineId: string, value: string): string {
+  return JSON.stringify([machineId, value]);
 }
 
 function shellQuote(value: string): string {

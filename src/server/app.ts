@@ -9,7 +9,8 @@ import { ProjectService } from "./projects/projectService.js";
 import { WorkspaceService } from "./workspaces/workspaceService.js";
 import { listFileSuggestions, listPathSuggestions } from "./workspaces/fileSuggestions.js";
 import { listDirectorySuggestions } from "./projects/directorySuggestions.js";
-import { registerSessionProxyRoutes } from "./sessiond/sessionProxyRoutes.js";
+import { SessionDaemonClient } from "./sessiond/sessionDaemonClient.js";
+import { registerSessionProxyRoutes, type SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
 import { registerWorkspaceExplorerRoutes } from "./workspaceExplorerRoutes.js";
 import { registerGitRoutes } from "./gitRoutes.js";
 import { registerTerminalProxyRoutes } from "./terminalProxyRoutes.js";
@@ -23,6 +24,7 @@ export interface AppDependencies {
   projects?: ProjectService;
   workspaces?: WorkspaceService;
   machines?: MachineService;
+  sessionDaemon?: SessionProxyDaemon;
   piWebPlugins?: Pick<PiWebPluginService, "manifest" | "readAsset">;
   clientDist?: string | false;
   logger?: FastifyServerOptions["logger"];
@@ -86,6 +88,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   const workspaces = deps.workspaces ?? new WorkspaceService();
   const piWebPlugins = deps.piWebPlugins ?? new PiWebPluginService();
   const machines = deps.machines ?? new MachineService();
+  const sessionDaemon = deps.sessionDaemon ?? new SessionDaemonClient();
 
   app.get("/pi-web-plugins/manifest.json", async () => piWebPlugins.manifest());
 
@@ -102,14 +105,14 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   registerLocalProjectRoutes(app, projects, workspaces, "/api");
   registerLocalProjectRoutes(app, projects, workspaces, "/api/machines/local");
 
-  registerSessionProxyRoutes(app);
-  registerSessionProxyRoutes(app, undefined, "/api/machines/local");
+  registerSessionProxyRoutes(app, sessionDaemon);
+  registerSessionProxyRoutes(app, sessionDaemon, "/api/machines/local");
   registerWorkspaceExplorerRoutes(app, projects, workspaces);
   registerWorkspaceExplorerRoutes(app, projects, workspaces, "/api/machines/local");
   registerGitRoutes(app, projects, workspaces);
   registerGitRoutes(app, projects, workspaces, "/api/machines/local");
-  registerTerminalProxyRoutes(app, projects, workspaces);
-  registerTerminalProxyRoutes(app, projects, workspaces, undefined, "/api/machines/local");
+  registerTerminalProxyRoutes(app, projects, workspaces, sessionDaemon);
+  registerTerminalProxyRoutes(app, projects, workspaces, sessionDaemon, "/api/machines/local");
 
   registerLocalFileSuggestionRoutes(app, "/api");
   registerLocalFileSuggestionRoutes(app, "/api/machines/local");

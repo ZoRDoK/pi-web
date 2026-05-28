@@ -1,62 +1,12 @@
-import type { FastifyInstance, FastifyReply, HTTPMethods } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import type { WebSocket } from "ws";
+import { FEDERATED_HTTP_ROUTES, FEDERATED_WEBSOCKET_ROUTES } from "../../shared/federatedRoutes.js";
 import { bridgeSockets } from "../webSocketBridge.js";
 import { RemoteMachineRequestError } from "./machineClient.js";
 import { MachineService } from "./machineService.js";
 
-interface HttpRouteSpec {
-  method: HTTPMethods;
-  path: string;
-}
-
-const REMOTE_HTTP_ROUTES: HttpRouteSpec[] = [
-  { method: "GET", path: "/projects" },
-  { method: "POST", path: "/projects" },
-  { method: "DELETE", path: "/projects/:projectId" },
-  { method: "GET", path: "/project-directories" },
-  { method: "GET", path: "/projects/:projectId/workspaces" },
-  { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/tree" },
-  { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/file" },
-  { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/file/preview" },
-  { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/git/status" },
-  { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/git/diff" },
-  { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/terminals" },
-  { method: "POST", path: "/projects/:projectId/workspaces/:workspaceId/terminals" },
-  { method: "DELETE", path: "/projects/:projectId/workspaces/:workspaceId/terminals/:terminalId" },
-  { method: "GET", path: "/files" },
-  { method: "GET", path: "/activity" },
-  { method: "GET", path: "/sessions" },
-  { method: "POST", path: "/sessions" },
-  { method: "GET", path: "/sessions/:sessionId/messages" },
-  { method: "GET", path: "/sessions/:sessionId/status" },
-  { method: "GET", path: "/sessions/:sessionId/models" },
-  { method: "POST", path: "/sessions/:sessionId/model" },
-  { method: "POST", path: "/sessions/:sessionId/model/cycle" },
-  { method: "GET", path: "/sessions/:sessionId/thinking-levels" },
-  { method: "POST", path: "/sessions/:sessionId/thinking-level" },
-  { method: "POST", path: "/sessions/:sessionId/thinking-level/cycle" },
-  { method: "GET", path: "/sessions/:sessionId/commands" },
-  { method: "POST", path: "/sessions/:sessionId/prompt" },
-  { method: "POST", path: "/sessions/:sessionId/shell" },
-  { method: "POST", path: "/sessions/:sessionId/commands/run" },
-  { method: "POST", path: "/sessions/:sessionId/commands/respond" },
-  { method: "POST", path: "/sessions/:sessionId/abort" },
-  { method: "POST", path: "/sessions/:sessionId/stop" },
-  { method: "POST", path: "/sessions/:sessionId/archive" },
-  { method: "POST", path: "/sessions/:sessionId/archive-tree" },
-  { method: "POST", path: "/sessions/:sessionId/restore" },
-  { method: "POST", path: "/sessions/:sessionId/detach-parent" },
-  { method: "GET", path: "/auth/providers" },
-  { method: "POST", path: "/auth/api-key" },
-  { method: "POST", path: "/auth/logout" },
-];
-
-const REMOTE_WEBSOCKET_ROUTES = [
-  "/events",
-  "/sessions/events",
-  "/sessions/:sessionId/events",
-  "/projects/:projectId/workspaces/:workspaceId/terminals/:terminalId/socket",
-];
+export const REMOTE_HTTP_ROUTES = FEDERATED_HTTP_ROUTES;
+export const REMOTE_WEBSOCKET_ROUTES = FEDERATED_WEBSOCKET_ROUTES;
 
 const SAFE_RESPONSE_HEADERS = new Set([
   "content-type",
@@ -64,6 +14,8 @@ const SAFE_RESPONSE_HEADERS = new Set([
   "cache-control",
   "last-modified",
   "etag",
+  "content-security-policy",
+  "x-content-type-options",
 ]);
 
 export function registerMachineProxyRoutes(app: FastifyInstance, machines = new MachineService()): void {

@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { readdir, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
+import { sanitizedGitEnv } from "../git/gitEnv.js";
 import type { ClientFileSuggestion } from "../types.js";
 
 const execFileAsync = promisify(execFile);
@@ -56,7 +57,7 @@ async function listPlainFiles(cwd: string): Promise<ClientFileSuggestion[]> {
 }
 
 async function git(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync("git", args, { cwd, maxBuffer: 1024 * 1024 * 8 });
+  const { stdout } = await execFileAsync("git", args, { cwd, env: sanitizedGitEnv(), maxBuffer: 1024 * 1024 * 8 });
   return stdout;
 }
 

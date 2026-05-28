@@ -38,6 +38,8 @@ export class MachineController {
       sessionActivities: {},
       workspaceActivities: {},
       workspacesByProjectId: {},
+      workspaceDeletionRuns: {},
+      activeTerminalCount: 0,
       ...resetWorkspaceScopedState(),
     });
     if (options.updateUrl !== false) this.updateUrl();

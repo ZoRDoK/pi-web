@@ -40,7 +40,7 @@ export class TerminalPanel extends LitElement {
   private intersectionObserver: IntersectionObserver | undefined;
   private themeObserver: MutationObserver | undefined;
   private suppressTerminalInput = false;
-  private observedCwd: string | undefined;
+  private observedWorkspaceScope: string | undefined;
   private loadedCwd: string | undefined;
   private autoStartConsumedCwd: string | undefined;
   private commandRunPollTimer: number | undefined;
@@ -69,9 +69,9 @@ export class TerminalPanel extends LitElement {
   }
 
   override willUpdate(changed: PropertyValues<this>): void {
-    const cwd = this.workspace?.path;
-    if (cwd !== this.observedCwd) {
-      this.observedCwd = cwd;
+    const workspaceScope = this.workspace === undefined ? undefined : JSON.stringify([this.machineId, this.workspace.path]);
+    if (workspaceScope !== this.observedWorkspaceScope) {
+      this.observedWorkspaceScope = workspaceScope;
       this.loadedCwd = undefined;
       this.autoStartConsumedCwd = undefined;
       this.terminals = [];
@@ -118,7 +118,7 @@ export class TerminalPanel extends LitElement {
       const shouldAutoStart = this.consumeAutoStart();
       const [terminals, commandRuns] = await Promise.all([
         terminalsApi.terminals(workspace.projectId, workspace.id, this.machineId),
-        terminalsApi.listCommandRuns({ projectId: workspace.projectId, workspaceId: workspace.id }),
+        terminalsApi.listCommandRuns({ projectId: workspace.projectId, workspaceId: workspace.id }, this.machineId),
       ]);
       this.terminals = terminals;
       this.commandRuns = commandRuns;
@@ -218,7 +218,7 @@ export class TerminalPanel extends LitElement {
     const workspace = this.workspace;
     if (workspace === undefined) return;
     try {
-      const commandRuns = await terminalsApi.listCommandRuns({ projectId: workspace.projectId, workspaceId: workspace.id });
+      const commandRuns = await terminalsApi.listCommandRuns({ projectId: workspace.projectId, workspaceId: workspace.id }, this.machineId);
       this.commandRuns = commandRuns;
       this.cancellingRunIds = this.cancellingRunIds.filter((runId) => commandRuns.some((run) => run.id === runId && isCommandRunPending(run)));
       this.updateCommandRunPolling(this.hasPendingCommandRuns(commandRuns));
@@ -247,7 +247,7 @@ export class TerminalPanel extends LitElement {
     this.error = undefined;
     this.cancellingRunIds = [...this.cancellingRunIds, run.id];
     try {
-      await terminalsApi.cancelCommandRun(run.id);
+      await terminalsApi.cancelCommandRun(run.id, this.machineId);
       await this.loadCommandRuns();
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
@@ -261,7 +261,7 @@ export class TerminalPanel extends LitElement {
     this.error = undefined;
     this.continuingTerminalIds = [...this.continuingTerminalIds, id];
     try {
-      const terminal = await terminalsApi.continueTerminal(this.workspace.projectId, this.workspace.id, id);
+      const terminal = await terminalsApi.continueTerminal(this.workspace.projectId, this.workspace.id, id, this.machineId);
       this.terminals = this.terminals.map((item) => item.id === id ? terminal : item);
       if (this.socket === undefined) this.disposeTerminalView();
       this.fitAndNotify();

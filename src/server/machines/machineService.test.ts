@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -35,6 +35,27 @@ describe("MachineService", () => {
 
     const raw: unknown = JSON.parse(await readFile(storePath, "utf8"));
     expect(raw).toMatchObject({ machines: [expect.objectContaining({ kind: "remote", token: "secret" })] });
+    await expectOwnerOnlyMachineStore(storePath);
+  });
+
+  it("tightens permissions after reading an existing machine store", async () => {
+    if (process.platform === "win32") return;
+    await writeFile(storePath, `${JSON.stringify({
+      machines: [{
+        id: "remote-1",
+        name: "Remote",
+        kind: "remote",
+        baseUrl: "https://remote.example.test",
+        token: "secret",
+        createdAt: "2026-05-25T00:00:00.000Z",
+        updatedAt: "2026-05-25T00:00:00.000Z",
+      }],
+    }, null, 2)}\n`, { encoding: "utf8", mode: 0o644 });
+    await chmod(storePath, 0o644);
+
+    await expect(service.list()).resolves.toEqual([expect.objectContaining({ id: "local" }), expect.objectContaining({ id: "remote-1" })]);
+
+    await expectOwnerOnlyMachineStore(storePath);
   });
 
   it("rejects invalid remote base URLs", async () => {
@@ -58,3 +79,8 @@ describe("MachineService", () => {
     expect(machineStorePath(env, "/tmp/pi-web")).toBe(resolve("/tmp/pi-web", "data/machines.json"));
   });
 });
+
+async function expectOwnerOnlyMachineStore(path: string): Promise<void> {
+  if (process.platform === "win32") return;
+  expect((await stat(path)).mode & 0o777).toBe(0o600);
+}

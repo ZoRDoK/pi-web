@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { piWebDataDir } from "../../config.js";
 
@@ -17,6 +17,8 @@ export interface StoredMachine {
 interface MachineFile {
   machines: StoredMachine[];
 }
+
+const MACHINE_STORE_FILE_MODE = 0o600;
 
 export function defaultMachineStorePath(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string {
   return join(piWebDataDir(env, cwd), "machines.json");
@@ -76,7 +78,9 @@ export class MachineStore {
   private async read(): Promise<MachineFile> {
     try {
       const value: unknown = JSON.parse(await readFile(this.filePath, "utf8"));
-      return parseMachineFile(value);
+      const parsed = parseMachineFile(value);
+      await restrictMachineStorePermissions(this.filePath);
+      return parsed;
     } catch (error) {
       if (isNodeErrorWithCode(error, "ENOENT")) return { machines: [] };
       throw error;
@@ -85,7 +89,8 @@ export class MachineStore {
 
   private async write(data: MachineFile): Promise<void> {
     await mkdir(dirname(this.filePath), { recursive: true });
-    await writeFile(this.filePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+    await writeFile(this.filePath, `${JSON.stringify(data, null, 2)}\n`, { encoding: "utf8", mode: MACHINE_STORE_FILE_MODE });
+    await restrictMachineStorePermissions(this.filePath);
   }
 }
 
@@ -121,6 +126,11 @@ function optionalStringRecord(value: unknown, key: string): Record<string, strin
     if (typeof headerValue !== "string") throw new Error(`Invalid machine ${key}`);
     return [header, headerValue];
   }));
+}
+
+async function restrictMachineStorePermissions(path: string): Promise<void> {
+  if (process.platform === "win32") return;
+  await chmod(path, MACHINE_STORE_FILE_MODE);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
