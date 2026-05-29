@@ -296,10 +296,11 @@ export interface PiWebVersionResponse {
 export interface PiWebStatusResponse extends PiWebVersionResponse {
   release: PiWebReleaseStatus;
   commands: {
-    update: string;
-    restart: string;
-    restartSystemd: string;
-    restartDev: string;
+    update?: string;
+    restart?: string;
+    restartWeb?: string;
+    restartSessiond?: string;
+    status?: string;
   };
   messages: PiWebStatusMessage[];
 }
