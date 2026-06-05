@@ -147,6 +147,7 @@ export class PiWebApp extends LitElement {
   private readonly plugins = createPluginRegistry();
   private readonly loadedMachinePluginIds = new Set<string>();
   private readonly machinePluginLoadPromises = new Map<string, Promise<void>>();
+  private gatewayPluginLoadPromise: Promise<void> | undefined;
   private themePreference: ThemePreference = readStoredThemePreference() ?? DEFAULT_THEME_PREFERENCE;
   @state() private activeThemeId: QualifiedContributionId = CLASSIC_THEME_ID;
   @state() private isRefreshingApp = false;
@@ -207,7 +208,7 @@ export class PiWebApp extends LitElement {
     void this.refreshPiWebStatus();
     void this.refreshWorkspaceActivity();
     void this.loadClientConfig();
-    void this.loadExternalPlugins();
+    void this.ensureGatewayPluginsLoaded();
     void this.loadProjectsAndRestoreRoute();
   }
 
@@ -972,6 +973,11 @@ export class PiWebApp extends LitElement {
     return applyShortcutPreferences(this.plugins.getActions(this.createPluginRuntimeContext()), this.shortcutConfig);
   }
 
+  private ensureGatewayPluginsLoaded(): Promise<void> {
+    this.gatewayPluginLoadPromise ??= this.loadExternalPlugins();
+    return this.gatewayPluginLoadPromise;
+  }
+
   private async loadExternalPlugins(): Promise<void> {
     await this.registerExternalPlugins("PI WEB plugins", () => loadExternalPlugins());
   }
@@ -983,6 +989,7 @@ export class PiWebApp extends LitElement {
   }
 
   private async loadPluginsForMachine(machine: Machine): Promise<void> {
+    await this.ensureGatewayPluginsLoaded();
     if (machine.kind !== "remote" || this.loadedMachinePluginIds.has(machine.id)) return;
     const existing = this.machinePluginLoadPromises.get(machine.id);
     if (existing !== undefined) return existing;
