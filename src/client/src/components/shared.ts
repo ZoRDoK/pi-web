@@ -391,8 +391,8 @@ export const formattedTextStyles = css`
 export const statusBarStyles = css`
   :host { display: block; color: var(--pi-muted); font: 12px system-ui, sans-serif; }
   .bar { display: flex; gap: 12px; align-items: center; min-width: 0; padding: 7px 12px; border-top: 1px solid var(--pi-border); background: var(--pi-bg); white-space: nowrap; overflow: hidden; }
-  span { overflow: hidden; text-overflow: ellipsis; }
-  .bar > span:first-child { flex: 1 1 auto; min-width: 80px; }
+  span { flex: 0 0 auto; overflow: hidden; text-overflow: ellipsis; }
+  .context { flex: 1 1 auto; min-width: 0; }
   .activity { display: inline-flex; align-items: center; gap: 6px; color: var(--pi-muted); }
   .activity.active { color: var(--pi-success); }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .45; flex: 0 0 auto; }

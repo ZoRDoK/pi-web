@@ -2,4 +2,4 @@
 "@jmfederico/pi-web": patch
 ---
 
-Reduce repeated workspace details in the chat status bar and workspace tool header so workspace context stays in the workspace chip.
+Reduce repeated machine and workspace details in the chat status bar and workspace tool header so context stays in the location chips.
