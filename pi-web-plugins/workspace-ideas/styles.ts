@@ -12,7 +12,8 @@ export function ideasStyles(): string {
       .composer-actions { display: flex; justify-content: flex-end; }
       .idea-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: start; border: 1px solid var(--pi-border); border-radius: 10px; background: var(--pi-surface); padding: 12px; }
       .idea-copy { display: grid; min-width: 0; gap: 5px; }
-      .idea-copy p { margin: 0; white-space: pre-wrap; }
+      .idea-text { display: block; width: 100%; margin: 0; border: 0; background: transparent; color: inherit; cursor: text; padding: 0; text-align: left; white-space: pre-wrap; }
+      .idea-text:hover { color: var(--pi-accent); }
       .idea-actions { display: inline-flex; gap: 8px; }
       button { border: 1px solid var(--pi-accent-border); border-radius: 7px; background: var(--pi-accent); color: var(--pi-bg); cursor: pointer; padding: 6px 10px; font: inherit; }
       button.secondary { border-color: var(--pi-border); background: var(--pi-surface); color: var(--pi-text); }
