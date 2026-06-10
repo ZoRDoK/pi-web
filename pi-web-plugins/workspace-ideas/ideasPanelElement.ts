@@ -48,6 +48,8 @@ class PiWebIdeasPanel extends HTMLElement {
   private contextValue: WorkspacePanelContext | undefined;
   private contextKey: string | undefined;
   private draft = "";
+  private editingIdeaId: string | undefined;
+  private editDraft = "";
   private runningIdeaId: string | undefined;
   private status: IdeaStatus | undefined;
   private gitignore: GitignoreState = { kind: "loading" };
@@ -61,6 +63,8 @@ class PiWebIdeasPanel extends HTMLElement {
     if (this.contextKey === nextKey) return;
 
     this.contextKey = nextKey;
+    this.editingIdeaId = undefined;
+    this.editDraft = "";
     this.runningIdeaId = undefined;
     this.status = undefined;
     this.gitignore = { kind: "loading" };
@@ -146,7 +150,7 @@ class PiWebIdeasPanel extends HTMLElement {
       ${this.renderStatus()}
       ${this.renderComposer()}
       <section class="ideas">
-        ${config.ideas.length === 0 ? `<p class="muted">No ideas yet.</p>` : config.ideas.map((idea) => renderIdea(context, idea, this.runningIdeaId)).join("")}
+        ${config.ideas.length === 0 ? `<p class="muted">No ideas yet.</p>` : config.ideas.map((idea) => renderIdea(context, idea, this.runningIdeaId, this.editingIdeaId, this.editDraft)).join("")}
       </section>
     `;
     this.bindRenderedControls(context);
@@ -183,6 +187,64 @@ class PiWebIdeasPanel extends HTMLElement {
     for (const button of this.root.querySelectorAll("button[data-run-idea]")) button.addEventListener("click", () => { void this.runIdea(context, button.getAttribute("data-run-idea")); });
     for (const button of this.root.querySelectorAll("button[data-delete-idea]")) button.addEventListener("click", () => { void this.deleteIdea(context, button.getAttribute("data-delete-idea")); });
     for (const button of this.root.querySelectorAll("button[data-done-idea]")) button.addEventListener("click", () => { void this.archiveIdea(context, button.getAttribute("data-done-idea")); });
+    for (const button of this.root.querySelectorAll("button[data-edit-idea]")) button.addEventListener("click", () => { this.startEditing(context, button.getAttribute("data-edit-idea")); });
+    for (const button of this.root.querySelectorAll("button[data-save-idea]")) button.addEventListener("click", () => { void this.saveIdeaEdit(context, button.getAttribute("data-save-idea")); });
+    for (const button of this.root.querySelectorAll("button[data-cancel-edit]")) button.addEventListener("click", () => { this.cancelEditing(); });
+    const editor = this.root.querySelector<HTMLTextAreaElement>("textarea[data-edit-idea-text]");
+    if (editor !== null) {
+      editor.addEventListener("input", () => { this.editDraft = editor.value; });
+      editor.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          this.cancelEditing();
+        }
+        if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+          event.preventDefault();
+          void this.saveIdeaEdit(context, editor.getAttribute("data-edit-idea-text"));
+        }
+      });
+      requestAnimationFrame(() => {
+        editor.focus();
+        editor.setSelectionRange(editor.value.length, editor.value.length);
+      });
+    }
+  }
+
+  private startEditing(context: WorkspacePanelContext, ideaId: string | null): void {
+    if (ideaId === null) return;
+    const idea = (configCache.get(ideasCacheKey(context)) ?? emptyIdeasConfig()).ideas.find((candidate) => candidate.id === ideaId);
+    if (idea === undefined) return;
+
+    this.editingIdeaId = idea.id;
+    this.editDraft = idea.text;
+    this.render();
+  }
+
+  private cancelEditing(): void {
+    this.editingIdeaId = undefined;
+    this.editDraft = "";
+    this.render();
+  }
+
+  private async saveIdeaEdit(context: WorkspacePanelContext, ideaId: string | null): Promise<void> {
+    if (ideaId === null || this.editingIdeaId !== ideaId) return;
+    const trimmed = this.editDraft.trim();
+    if (trimmed === "") {
+      this.status = { kind: "error", message: "Idea text is required." };
+      this.render();
+      return;
+    }
+
+    const config = await this.loadConfig(context);
+    const ideaExists = config.ideas.some((idea) => idea.id === ideaId);
+    if (!ideaExists) return;
+
+    config.ideas = config.ideas.map((idea) => idea.id === ideaId ? { ...idea, text: trimmed } : idea);
+    await this.saveConfig(context, config);
+    this.editingIdeaId = undefined;
+    this.editDraft = "";
+    this.status = { kind: "success", message: "Idea updated." };
+    this.changed(context);
   }
 
   private async addIdea(context: WorkspacePanelContext, text: string): Promise<void> {
@@ -273,17 +335,33 @@ class PiWebIdeasPanel extends HTMLElement {
   }
 }
 
-function renderIdea(context: WorkspacePanelContext, idea: Idea, runningIdeaId: string | undefined): string {
+function renderIdea(context: WorkspacePanelContext, idea: Idea, runningIdeaId: string | undefined, editingIdeaId: string | undefined, editDraft: string): string {
   const sessionLink = idea.runSessionId === undefined ? "" : `<a href="${escapeAttr(sessionHref(context, idea))}">Session ${escapeHtml(idea.runSessionId.slice(0, 8))}</a>`;
+  const isEditing = editingIdeaId === idea.id;
   return `
     <article class="idea-card">
       <div class="idea-copy">
-        <p>${escapeHtml(idea.text)}</p>
+        ${isEditing ? renderIdeaEditor(idea, editDraft) : renderIdeaText(idea)}
         <small>Added ${escapeHtml(formatDate(idea.createdAt))}</small>
         ${sessionLink}
       </div>
-      <div class="idea-actions">${renderIdeaActions(idea, runningIdeaId)}</div>
+      <div class="idea-actions">${isEditing ? renderEditActions(idea) : renderIdeaActions(idea, runningIdeaId)}</div>
     </article>
+  `;
+}
+
+function renderIdeaText(idea: Idea): string {
+  return `<button class="idea-text" data-edit-idea="${escapeAttr(idea.id)}" title="Edit idea">${escapeHtml(idea.text)}</button>`;
+}
+
+function renderIdeaEditor(idea: Idea, editDraft: string): string {
+  return `<textarea rows="4" data-edit-idea-text="${escapeAttr(idea.id)}">${escapeHtml(editDraft)}</textarea>`;
+}
+
+function renderEditActions(idea: Idea): string {
+  return `
+    <button data-save-idea="${escapeAttr(idea.id)}">Save</button>
+    <button class="secondary" data-cancel-edit="${escapeAttr(idea.id)}">Cancel</button>
   `;
 }
 
