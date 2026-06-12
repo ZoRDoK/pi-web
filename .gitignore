@@ -7,3 +7,4 @@ dist/
 
 # Local plugin development sandboxes. Symlink these into ~/.pi-web/plugins/<plugin-id>.
 /dev-plugins/
+.pi-web/
