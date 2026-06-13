@@ -28,6 +28,7 @@ export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) workspaceActivities: Record<string, WorkspaceActivity> = {};
   @property({ attribute: false }) sessionActivities: Record<string, SessionActivity> = {};
   @property({ attribute: false }) sessionStatuses: Record<string, SessionStatus> = {};
+  @property({ attribute: false }) sendingPrompts: Record<string, true> = {};
   @property({ attribute: false }) workspacesByProjectId: Record<string, Workspace[]> = {};
   @property({ attribute: false }) deletingWorkspaceIds: string[] = [];
   @property({ attribute: false }) workspaceLabelItems: (workspace: Workspace) => WorkspaceLabelItem[] = () => [];
@@ -151,6 +152,7 @@ export class AppNavigationPanel extends LitElement {
         .sessions=${this.sessions}
         .statuses=${this.sessionStatuses}
         .activities=${this.sessionActivities}
+        .sending=${this.sendingPrompts}
         .selected=${this.selectedSession}
         .canStart=${this.canStartSession}
         .canDeleteArchived=${this.canDeleteArchivedSessions}

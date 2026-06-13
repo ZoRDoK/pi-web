@@ -64,7 +64,11 @@ export class SessionController {
     this.socket.close();
     this.catchupStreamSessionId = undefined;
     this.clearPendingTranscriptEvents();
-    this.setState({ selectedSession: undefined, messages: [], messagePageStart: 0, messagePageEnd: 0, messagePageTotal: 0, isLoadingEarlierMessages: false, isReceivingPartialStream: false, isSendingPrompt: false, status: undefined, activity: undefined });
+    // Note: sendingPrompts is intentionally NOT cleared here. Deselecting a
+    // session must not cancel the in-flight upload indicator of the session
+    // that is still sending; the per-session entry is cleared by send()'s
+    // finally block when the request settles.
+    this.setState({ selectedSession: undefined, messages: [], messagePageStart: 0, messagePageEnd: 0, messagePageTotal: 0, isLoadingEarlierMessages: false, isReceivingPartialStream: false, status: undefined, activity: undefined });
   }
 
   deselectSession(options?: { forgetRememberedSelection?: boolean | undefined; updateUrl?: boolean | undefined }) {
@@ -176,25 +180,38 @@ export class SessionController {
     if (!hasAttachments && isShellInput(text)) return this.runShell(text);
     const session = this.getState().selectedSession;
     if (!session || session.archived === true) return;
-    // Surface a single optimistic sending state in the chat activity dock. It
-    // covers the pre-receipt window (upload, server-side image resizing,
-    // first-session open) and is superseded by real server activity/messages
-    // once api.prompt resolves.
-    if (hasAttachments) this.setState({ isSendingPrompt: true });
+    // Capture the originating session/machine before any await so the request
+    // and its sending indicator stay bound to the right session even if the
+    // user navigates elsewhere mid-upload.
+    const sessionId = session.id;
+    const machineId = selectedMachineId(this.getState());
+    // Surface a per-session optimistic sending state. It covers the pre-receipt
+    // window (upload, server-side image resizing, first-session open) and is
+    // superseded by real server activity/messages once api.prompt resolves.
+    if (hasAttachments) this.markSendingPrompt(sessionId, true);
     try {
       if (hasAttachments && delivery === "folder") {
-        const saved = await this.api.saveAttachments(session, attachments, selectedMachineId(this.getState()));
+        const saved = await this.api.saveAttachments(session, attachments, machineId);
         const references = saved.map((file) => fileCompletionInsertText(file.path, false)).join(" ");
         const body = text === "" ? references : `${text}\n\n${references}`;
-        await this.api.prompt(session, body, streamingBehavior, selectedMachineId(this.getState()));
+        await this.api.prompt(session, body, streamingBehavior, machineId);
       } else {
-        await this.api.prompt(session, text, streamingBehavior, selectedMachineId(this.getState()), attachments);
+        await this.api.prompt(session, text, streamingBehavior, machineId, attachments);
       }
       this.markCachedNewSessionPersisted(session);
     } catch (error) {
       this.setState({ error: String(error) });
     } finally {
-      if (hasAttachments) this.setState({ isSendingPrompt: false });
+      if (hasAttachments) this.markSendingPrompt(sessionId, false);
+    }
+  }
+
+  private markSendingPrompt(sessionId: string, sending: boolean): void {
+    const current = this.getState().sendingPrompts;
+    if (sending) {
+      if (current[sessionId] !== true) this.setState({ sendingPrompts: { ...current, [sessionId]: true } });
+    } else if (sessionId in current) {
+      this.setState({ sendingPrompts: omitKey(current, sessionId) });
     }
   }
 
@@ -634,7 +651,11 @@ export class SessionController {
 }
 
 function omitSessionActivity(activities: Record<string, SessionActivity>, sessionId: string): Record<string, SessionActivity> {
-  return Object.fromEntries(Object.entries(activities).filter(([id]) => id !== sessionId));
+  return omitKey(activities, sessionId);
+}
+
+function omitKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  return Object.fromEntries(Object.entries(record).filter(([id]) => id !== key));
 }
 
 function uniqueSessionsById(sessions: readonly SessionInfo[]): SessionInfo[] {

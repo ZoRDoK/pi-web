@@ -27,6 +27,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   @property({ attribute: false }) sessions: SessionInfo[] = [];
   @property({ attribute: false }) statuses: Record<string, SessionStatus> = {};
   @property({ attribute: false }) activities: Record<string, SessionActivity> = {};
+  @property({ attribute: false }) sending: Record<string, true> = {};
   @property({ attribute: false }) selected?: SessionInfo;
   @property({ type: Boolean }) canStart = false;
   @property({ type: Boolean }) canDeleteArchived = false;
@@ -361,7 +362,8 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
 
   private renderActivity(session: SessionInfo) {
     if (isCachedNewSessionInfo(session) || session.archived === true) return undefined;
-    return renderActionActivityIndicator(isSessionActive(this.statuses[session.id], this.activities[session.id]) ? "session" : undefined, "Session active");
+    const active = this.sending[session.id] === true || isSessionActive(this.statuses[session.id], this.activities[session.id]);
+    return renderActionActivityIndicator(active ? "session" : undefined, "Session active");
   }
 
   static override styles = [listStyles, css`
