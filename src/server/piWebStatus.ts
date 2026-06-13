@@ -58,6 +58,10 @@ const serviceRefs: Record<ServiceId, NativeServiceRef> = {
 };
 
 const startServiceOrder: ServiceId[] = ["sessiond", "web", "uiDev"];
+// Restart web/UI before sessiond: when the restart command runs in a pi-web
+// terminal (owned by sessiond), restarting sessiond kills the command, so any
+// services listed after it would never be restarted.
+const restartServiceOrder: ServiceId[] = ["web", "uiDev", "sessiond"];
 
 interface PackageInfo {
   name: string;
@@ -430,12 +434,12 @@ async function nativeServiceCommands(): Promise<NativeServiceCommands> {
   if (installed.size === 0) return {};
   const web = installedServiceRefs(installed, ["web", "uiDev"]);
   const sessiond = installedServiceRefs(installed, ["sessiond"]);
-  const restartable = web.length === 0 ? [] : installedServiceRefs(installed);
+  const restartable = web.length === 0 ? [] : installedServiceRefs(installed, restartServiceOrder, restartServiceOrder);
   const status = installedServiceRefs(installed);
   return {
-    ...(restartable.length === 0 ? {} : { restart: restartNativeServicesCommand(backend, restartable) }),
-    ...(web.length === 0 ? {} : { restartWeb: restartNativeServicesCommand(backend, web) }),
-    ...(sessiond.length === 0 ? {} : { restartSessiond: restartNativeServicesCommand(backend, sessiond) }),
+    ...(restartable.length === 0 ? {} : { restart: restartNativeServicesCommand(backend, restartable, "pi-web-restart") }),
+    ...(web.length === 0 ? {} : { restartWeb: restartNativeServicesCommand(backend, web, "pi-web-restart-web") }),
+    ...(sessiond.length === 0 ? {} : { restartSessiond: restartNativeServicesCommand(backend, sessiond, "pi-web-restart-sessiond") }),
     ...(status.length === 0 ? {} : { status: statusNativeServicesCommand(backend, status) }),
   };
 }
@@ -450,8 +454,8 @@ function installedServiceIds(backend: NativeServiceBackendKind): Set<ServiceId> 
   return new Set(startServiceOrder.filter((id) => existsSync(serviceFilePath(backend, serviceRefs[id]))));
 }
 
-function installedServiceRefs(installed: Set<ServiceId>, candidates: ServiceId[] = startServiceOrder): NativeServiceRef[] {
-  return startServiceOrder.filter((id) => candidates.includes(id) && installed.has(id)).map((id) => serviceRefs[id]);
+function installedServiceRefs(installed: Set<ServiceId>, candidates: ServiceId[] = startServiceOrder, order: ServiceId[] = startServiceOrder): NativeServiceRef[] {
+  return order.filter((id) => candidates.includes(id) && installed.has(id)).map((id) => serviceRefs[id]);
 }
 
 function serviceFilePath(backend: NativeServiceBackendKind, ref: NativeServiceRef): string {
@@ -466,8 +470,18 @@ function launchdServiceDir(): string {
   return join(homedir(), "Library", "LaunchAgents");
 }
 
-function restartNativeServicesCommand(backend: NativeServiceBackendKind, refs: NativeServiceRef[]): string {
-  if (backend === "systemd") return `systemctl --user restart ${refs.map((ref) => ref.systemdName).join(" ")}`;
+function restartNativeServicesCommand(backend: NativeServiceBackendKind, refs: NativeServiceRef[], systemdUnit: string): string {
+  // On systemd, run the restart inside a transient, detached `.service` unit
+  // (the default `systemd-run` mode, not `--scope`). A scope would stay a child
+  // of the calling shell and die with the terminal; a transient service is
+  // reparented to the user service manager, so the restart finishes even when
+  // restarting the session daemon kills the pi-web terminal that launched it.
+  // `--collect` cleans the unit up afterwards, and the fixed `--unit` name makes
+  // logs easy to find with `journalctl --user -u <unit>`.
+  if (backend === "systemd") {
+    const names = refs.map((ref) => ref.systemdName).join(" ");
+    return `systemd-run --user --collect --unit=${systemdUnit} -- systemctl --user restart ${names}`;
+  }
   return refs.map((ref) => `launchctl kickstart -k gui/$(id -u)/${ref.launchdLabel}`).join(" && ");
 }
 
