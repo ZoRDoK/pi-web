@@ -1,8 +1,10 @@
-import { join, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { canonicalizeStoredCwd, cwdPathsEqual, normalizeRequestCwd } from "./workingDirectory.js";
 
-const absoluteBase = join(sep, "srv", "projects", "demo");
+// resolve() so the base already carries a drive letter on Windows, matching
+// what normalizeRequestCwd/canonicalizeStoredCwd produce.
+const absoluteBase = resolve(sep, "srv", "projects", "demo");
 
 describe("normalizeRequestCwd", () => {
   it("returns absolute paths in canonical form", () => {
